@@ -1,0 +1,121 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 520" fill="none">
+  <defs>
+    <linearGradient id="roadGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#3c4a52"/>
+      <stop offset="100%" stop-color="#2b363c"/>
+    </linearGradient>
+    <linearGradient id="bldgGrad1" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#e7efe9"/>
+    </linearGradient>
+    <linearGradient id="bldgGrad2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f3f8f5"/>
+      <stop offset="100%" stop-color="#dbe8e0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- ground -->
+  <ellipse cx="320" cy="330" rx="300" ry="190" fill="#eef6f1"/>
+
+  <!-- roads: cross intersection -->
+  <g>
+    <polygon points="60,330 300,190 340,190 100,330" fill="url(#roadGrad)"/>
+    <polygon points="340,190 580,330 580,360 300,190" fill="url(#roadGrad)"/>
+    <polygon points="60,330 300,190 300,220 100,360" fill="url(#roadGrad)" opacity="0"/>
+    <polygon points="100,330 340,190 340,220 100,360" fill="url(#roadGrad)"/>
+    <polygon points="340,220 580,360 540,380 300,240" fill="url(#roadGrad)"/>
+    <polygon points="220,150 340,220 340,260 220,190" fill="url(#roadGrad)"/>
+    <polygon points="220,150 340,220 300,240 180,170" fill="url(#roadGrad)"/>
+  </g>
+
+  <!-- lane markings -->
+  <g stroke="#f4f4f2" stroke-width="3" stroke-dasharray="10 10" opacity="0.5">
+    <line x1="120" y1="335" x2="290" y2="228" />
+    <line x1="360" y1="228" x2="530" y2="335" />
+  </g>
+
+  <!-- crosswalk stripes at center -->
+  <g fill="#f4f4f2" opacity="0.85">
+    <polygon points="255,240 265,234 275,240 265,246" />
+    <polygon points="275,252 285,246 295,252 285,258" />
+    <polygon points="295,264 305,258 315,264 305,270" />
+  </g>
+
+  <!-- trees -->
+  <g>
+    <circle cx="90" cy="300" r="16" fill="#2f9e5f"/>
+    <rect x="87" y="308" width="6" height="14" fill="#7a5230"/>
+    <circle cx="150" cy="360" r="14" fill="#3aab6b"/>
+    <rect x="147" y="367" width="5" height="12" fill="#7a5230"/>
+    <circle cx="480" cy="270" r="15" fill="#2f9e5f"/>
+    <rect x="477" y="278" width="6" height="13" fill="#7a5230"/>
+    <circle cx="560" cy="320" r="13" fill="#3aab6b"/>
+    <rect x="557" y="327" width="5" height="11" fill="#7a5230"/>
+    <circle cx="420" cy="130" r="12" fill="#3aab6b"/>
+    <rect x="417" y="137" width="5" height="10" fill="#7a5230"/>
+  </g>
+
+  <!-- buildings cluster (top right) -->
+  <g>
+    <polygon points="420,150 460,128 460,220 420,242" fill="url(#bldgGrad1)" stroke="#d3e2da"/>
+    <polygon points="460,128 500,148 500,232 460,220" fill="url(#bldgGrad2)" stroke="#d3e2da"/>
+    <polygon points="420,150 460,128 500,148 460,170" fill="#ffffff" stroke="#d3e2da"/>
+
+    <polygon points="470,90 505,72 505,140 470,158" fill="url(#bldgGrad1)" stroke="#d3e2da"/>
+    <polygon points="505,72 535,88 535,148 505,140" fill="url(#bldgGrad2)" stroke="#d3e2da"/>
+    <polygon points="470,90 505,72 535,88 505,106" fill="#ffffff" stroke="#d3e2da"/>
+
+    <g stroke="#c7d9cf">
+      <line x1="430" y1="165" x2="430" y2="230" />
+      <line x1="440" y1="160" x2="440" y2="235" />
+      <line x1="450" y1="155" x2="450" y2="238" />
+      <line x1="480" y1="105" x2="480" y2="150" />
+      <line x1="490" y1="100" x2="490" y2="155" />
+    </g>
+  </g>
+
+  <!-- wind turbine top-left -->
+  <g stroke="#9fb3a9" stroke-width="3" fill="none" opacity="0.8">
+    <line x1="565" y1="70" x2="565" y2="130" />
+    <line x1="565" y1="80" x2="590" y2="65" />
+    <line x1="565" y1="80" x2="548" y2="60" />
+    <line x1="565" y1="80" x2="562" y2="102" />
+  </g>
+
+  <!-- bus at intersection center -->
+  <g>
+    <rect x="255" y="205" width="70" height="34" rx="6" fill="#2b7cf0" transform="skewX(-18)"/>
+    <rect x="260" y="210" width="60" height="12" rx="2" fill="#bcd8ff" transform="skewX(-18)"/>
+    <circle cx="262" cy="245" r="6" fill="#1c1f24"/>
+    <circle cx="308" cy="245" r="6" fill="#1c1f24"/>
+  </g>
+
+  <!-- cars on lower-left road -->
+  <g>
+    <rect x="130" y="290" width="34" height="16" rx="4" fill="#e2453c" transform="skewX(-25)"/>
+    <circle cx="136" cy="308" r="4" fill="#1c1f24"/>
+    <circle cx="160" cy="308" r="4" fill="#1c1f24"/>
+
+    <rect x="170" y="315" width="30" height="14" rx="4" fill="#ffffff" transform="skewX(-25)"/>
+    <circle cx="176" cy="331" r="4" fill="#1c1f24"/>
+    <circle cx="198" cy="331" r="4" fill="#1c1f24"/>
+  </g>
+
+  <!-- cars on lower-right road -->
+  <g>
+    <rect x="400" y="300" width="34" height="16" rx="4" fill="#f4b400" transform="skewX(25)"/>
+    <circle cx="406" cy="318" r="4" fill="#1c1f24"/>
+    <circle cx="430" cy="318" r="4" fill="#1c1f24"/>
+
+    <rect x="450" y="325" width="30" height="14" rx="4" fill="#ffffff" transform="skewX(25)"/>
+    <circle cx="456" cy="341" r="4" fill="#1c1f24"/>
+    <circle cx="478" cy="341" r="4" fill="#1c1f24"/>
+  </g>
+
+  <!-- small buildings bottom-left -->
+  <g>
+    <polygon points="40,340 75,322 75,370 40,388" fill="url(#bldgGrad2)" stroke="#d3e2da"/>
+    <polygon points="75,322 105,338 105,378 75,370" fill="url(#bldgGrad1)" stroke="#d3e2da"/>
+    <polygon points="40,340 75,322 105,338 75,356" fill="#ffffff" stroke="#d3e2da"/>
+  </g>
+</svg>
