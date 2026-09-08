@@ -1,0 +1,13 @@
+# Node dependencies
+frontend/node_modules/
+node_modules/
+
+# Python
+__pycache__/
+*.pyc
+backend/uploads/
+backend/outputs/
+
+# Environment & system keys
+.env
+.DS_Store
