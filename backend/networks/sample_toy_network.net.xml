@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Synthetic two-way "smoke test" network for AutoTactix, split into two
+  chained edges (J0-J1-J2) so a start/end coordinate pair matches two
+  distinct edges and Module 1 can route between them.
+
+  This is NOT a real road network. It is a straight ~850 m corridor placed
+  with a correct UTM43N geo-projection so lon/lat -> XY conversion, edge
+  matching, routing, and vehicle injection can all be exercised end-to-end
+  without first importing a real city map. It spans the two coordinate
+  pairs pre-filled in the dashboard's "Route coordinates" form
+  (about 19.9975N,73.7898E to 20.0025N,73.7960E - central Nashik,
+  Maharashtra), so clicking "Run simulation" with the default values works
+  out of the box.
+
+  For a real deployment, replace/extend this with a network exported from
+  SUMO's OSM Web Wizard (https://sumo.dlr.de/docs/Tools/Import/OSM.html) or
+  built with netconvert using OSM input and a UTM projection flag, which
+  preserves the same <location projParameter="..."/> mechanism this file uses.
+-->
+<net version="1.9" junctionCornerDetail="5" limitTurnSpeed="5.50" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/net_file.xsd">
+
+    <location netOffset="-373397.49,-2211661.95" convBoundary="0.00,0.00,652.65,548.72" origBoundary="73.7898,19.9975,73.7960,20.0025" projParameter="+proj=utm +zone=43 +datum=WGS84 +units=m +no_defs"/>
+
+    <edge id="E0" from="J0" to="J1" priority="-1">
+        <lane id="E0_0" index="0" speed="13.89" length="426.34" width="3.20" shape="1.03,-1.22 327.36,273.14"/>
+    </edge>
+    <edge id="E1" from="J1" to="J2" priority="-1">
+        <lane id="E1_0" index="0" speed="13.89" length="426.34" width="3.20" shape="327.36,273.14 653.68,547.50"/>
+    </edge>
+    <edge id="-E1" from="J2" to="J1" priority="-1">
+        <lane id="-E1_0" index="0" speed="13.89" length="426.34" width="3.20" shape="651.62,549.94 325.30,275.58"/>
+    </edge>
+    <edge id="-E0" from="J1" to="J0" priority="-1">
+        <lane id="-E0_0" index="0" speed="13.89" length="426.34" width="3.20" shape="325.30,275.58 -1.03,1.22"/>
+    </edge>
+
+    <junction id="J0" type="dead_end" x="0.00" y="0.00" incLanes="-E0_0" intLanes="" shape="0.00,1.60 0.00,-1.60"/>
+    <junction id="J1" type="priority" x="326.33" y="274.36" incLanes="E0_0 -E1_0" intLanes="" shape="325.30,275.58 327.36,273.14 327.36,273.14 325.30,275.58"/>
+    <junction id="J2" type="dead_end" x="652.65" y="548.72" incLanes="E1_0" intLanes="" shape="652.65,547.12 652.65,550.32"/>
+
+    <connection from="E0" to="E1" fromLane="0" toLane="0" dir="s" state="M"/>
+    <connection from="-E1" to="-E0" fromLane="0" toLane="0" dir="s" state="M"/>
+
+</net>

@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AutoTactix — Traffic Diagnosis & Simulation Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          asphalt: { DEFAULT: '#15171C', panel: '#1B1E24', raised: '#21242C', border: '#2A2E38' },
+          paint: '#ECEAE2',
+          muted: '#868C99',
+          amber: { DEFAULT: '#F2B705', dim: '#7A5E08' },
+          signal: { green: '#33D17A', red: '#FF5C5C', blue: '#4DA3FF' },
+        },
+        fontFamily: {
+          display: ['"Space Grotesk"', 'sans-serif'],
+          body: ['Inter', 'sans-serif'],
+          mono: ['"IBM Plex Mono"', 'monospace'],
+        },
+      },
+    },
+  };
+</script>
+<style>
+  html { background: #15171C; }
+  ::selection { background: #F2B705; color: #15171C; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: #15171C; }
+  ::-webkit-scrollbar-thumb { background: #2A2E38; border-radius: 6px; }
+
+  .field { background: #15171C; border: 1px solid #2A2E38; color: #ECEAE2; }
+  .field:focus { outline: none; border-color: #F2B705; box-shadow: 0 0 0 3px rgba(242, 183, 5, 0.15); }
+  
+  .status-dot { width: 8px; height: 8px; border-radius: 999px; display: inline-block; }
+  .pulse { animation: pulse-ring 1.6s cubic-bezier(0.4,0,0.6,1) infinite; }
+  @keyframes pulse-ring { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+  #lane-canvas { cursor: crosshair; touch-action: none; }
+  .lane-swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  
+  .markdown-body h1 { font-size: 1.5rem; font-weight: 700; color: #F2B705; margin-bottom: 0.75rem; }
+  .markdown-body h2 { font-size: 1.25rem; font-weight: 600; color: #38bdf8; margin-top: 1.25rem; margin-bottom: 0.5rem; }
+  .markdown-body h3 { font-size: 1rem; font-weight: 600; color: #ECEAE2; margin-top: 1rem; margin-bottom: 0.25rem; }
+  .markdown-body p, .markdown-body li { font-size: 0.875rem; color: #cbd5e1; line-height: 1.5; }
+  .markdown-body ul { list-style-type: disc; padding-left: 1.25rem; margin-bottom: 0.75rem; }
+  .markdown-body table { width: 100%; border-collapse: collapse; margin-top: 0.75rem; font-size: 0.8rem; }
+  .markdown-body th, .markdown-body td { border: 1px solid #2A2E38; padding: 6px 10px; text-align: left; }
+  .markdown-body th { background: #1B1E24; color: #F2B705; }
+</style>
+</head>
+<body class="bg-asphalt text-paint font-body antialiased min-h-screen">
+
+  <header class="border-b border-asphalt-border">
+    <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between gap-4 flex-wrap">
+      <div class="flex items-center gap-3">
+        <svg width="34" height="34" viewBox="0 0 34 34" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect width="34" height="34" rx="8" fill="#1B1E24" stroke="#2A2E38"/>
+          <path d="M8 24 L17 8 L26 24" stroke="#F2B705" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <div>
+          <h1 class="font-display font-semibold text-lg leading-tight tracking-tight">AutoTactix</h1>
+          <p class="text-xs text-muted leading-tight">Traffic diagnosis &amp; simulation console</p>
+        </div>
+      </div>
+
+      <nav class="flex items-center bg-asphalt-panel border border-asphalt-border rounded-lg p-1" role="tablist">
+        <button id="tab-sim" class="px-4 py-2 rounded-md text-sm font-medium transition-colors bg-amber text-asphalt">Simulation</button>
+        <button id="tab-video" class="px-4 py-2 rounded-md text-sm font-medium transition-colors text-muted hover:text-paint">Video Analysis</button>
+      </nav>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-6 py-8">
+
+    <!-- ============================== MODULE 1: SIMULATION ============================== -->
+    <section id="panel-sim" class="grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-6">
+      <div class="bg-asphalt-panel border border-asphalt-border rounded-xl p-5 space-y-5 h-fit">
+        <div>
+          <p class="text-sm font-medium text-paint mb-2">Target GPS Coordinates &amp; Radius</p>
+          <div class="space-y-2">
+            <label class="block">
+              <span class="text-xs text-muted">Latitude</span>
+              <input id="center-lat" type="number" step="0.000001" value="20.000000" class="field w-full mt-1 rounded-md px-2.5 py-1.5 text-sm font-mono" />
+            </label>
+            <label class="block">
+              <span class="text-xs text-muted">Longitude</span>
+              <input id="center-lon" type="number" step="0.000001" value="73.790000" class="field w-full mt-1 rounded-md px-2.5 py-1.5 text-sm font-mono" />
+            </label>
+            <label class="block">
+              <span class="text-xs text-muted">Radius (Meters)</span>
+              <input id="radius" type="number" min="100" max="5000" step="50" value="300" class="field w-full mt-1 rounded-md px-2.5 py-1.5 text-sm font-mono" />
+            </label>
+          </div>
+        </div>
+
+        <div class="h-px bg-asphalt-border"></div>
+
+        <div>
+          <p class="text-sm font-medium text-paint mb-2">Traffic Intensity Parameters</p>
+          <div class="space-y-2">
+            <label class="flex items-center justify-between gap-3">
+              <span class="text-xs text-muted">Injection Period (s)</span>
+              <input id="injection-rate" type="number" min="0.05" max="10" step="0.05" value="0.25" class="field w-28 rounded-md px-2.5 py-1.5 text-sm font-mono text-right" />
+            </label>
+            <label class="flex items-center justify-between gap-3">
+              <span class="text-xs text-muted">Step Delay (ms)</span>
+              <input id="step-delay" type="number" min="0" max="1000" value="80" class="field w-28 rounded-md px-2.5 py-1.5 text-sm font-mono text-right" />
+            </label>
+          </div>
+        </div>
+
+        <div class="h-px bg-asphalt-border"></div>
+
+        <div>
+          <p class="text-sm font-medium text-paint mb-2">Network Selection</p>
+          <select id="network-select" class="field w-full rounded-md px-2.5 py-1.5 text-sm">
+            <option value="">⚡ Auto-Generate Live Map from GPS</option>
+          </select>
+        </div>
+
+        <button id="run-sim-btn" class="w-full bg-amber text-asphalt font-semibold text-sm rounded-md py-2.5 hover:brightness-110 transition disabled:opacity-50">
+          Auto-Generate &amp; Run
+        </button>
+        <p id="sim-error" class="text-xs text-signal-red hidden"></p>
+      </div>
+
+      <div class="bg-asphalt-panel border border-asphalt-border rounded-xl p-5 flex flex-col gap-4">
+        <div class="flex items-center justify-between">
+          <p class="text-sm font-medium">Live Stream Viewport</p>
+          <div class="flex items-center gap-2 text-xs font-mono">
+            <span id="sim-status-dot" class="status-dot bg-muted"></span>
+            <span id="sim-status-label" class="text-muted">idle</span>
+          </div>
+        </div>
+
+        <div class="relative w-full h-[680px] bg-asphalt rounded-lg border border-asphalt-border overflow-hidden flex items-center justify-center">
+          <div id="sim-placeholder" class="text-center px-6">
+            <p id="sim-placeholder-text" class="text-sm text-muted">Click Auto-Generate &amp; Run to start the simulation.</p>
+          </div>
+          <iframe id="sim-iframe" class="hidden w-full h-full border-0 rounded-lg" allow="fullscreen"></iframe>
+        </div>
+
+        <div class="flex items-center justify-between flex-wrap gap-2">
+          <p id="sim-telemetry" class="text-xs font-mono text-muted">—</p>
+          <button id="stop-sim-btn" class="hidden text-xs font-medium text-signal-red border border-signal-red/50 rounded-md px-3 py-1.5 hover:bg-signal-red/10 transition">
+            Stop simulation
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================== MODULE 2: VIDEO ANALYSIS ============================== -->
+    <section id="panel-video" class="hidden grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-6">
+      <div class="bg-asphalt-panel border border-asphalt-border rounded-xl p-5 space-y-5 h-fit">
+        <div>
+          <p class="text-sm font-medium text-paint mb-2">Source Video</p>
+          <label id="video-dropzone" class="block border border-dashed border-asphalt-border rounded-lg p-6 text-center cursor-pointer hover:border-amber transition-colors">
+            <span id="video-dropzone-label" class="text-sm text-muted">Click to select .mp4, .avi, or .mov</span>
+            <input id="video-input" type="file" accept=".mp4,.avi,.mov" class="hidden" />
+          </label>
+          <p id="video-meta" class="text-xs font-mono text-muted mt-2 hidden"></p>
+          <p id="video-error" class="text-xs text-signal-red mt-2 hidden"></p>
+        </div>
+
+        <div class="h-px bg-asphalt-border"></div>
+
+        <div id="tool-section" class="opacity-40 pointer-events-none space-y-2">
+          <p class="text-sm font-medium text-paint mb-1">Multi-Zone Selector Tool</p>
+          <div class="grid grid-cols-2 gap-1 bg-asphalt border border-asphalt-border rounded-lg p-1">
+            <button id="tool-lane" class="text-xs font-medium rounded-md py-1.5 bg-amber text-asphalt">Lanes Zone</button>
+            <button id="tool-intersection" class="text-xs font-medium rounded-md py-1.5 text-muted">Intersection Box</button>
+            <button id="tool-crosswalk" class="text-xs font-medium rounded-md py-1.5 text-muted">Crosswalk Zone</button>
+            <button id="tool-line" class="text-xs font-medium rounded-md py-1.5 text-muted">Counting Line</button>
+          </div>
+          <p id="tool-hint" class="text-xs text-muted leading-relaxed">Click 4 points to define a lane polygon zone.</p>
+
+          <div class="flex gap-2 pt-2">
+            <button id="finish-zone-btn" disabled class="flex-1 text-xs font-medium border border-asphalt-border rounded-md py-1.5 disabled:opacity-40">Finish Zone</button>
+            <button id="clear-marks-btn" class="flex-1 text-xs font-medium border border-asphalt-border rounded-md py-1.5 hover:text-signal-red">Clear All</button>
+          </div>
+
+          <ul id="shape-list" class="space-y-1 text-xs font-mono pt-2"></ul>
+        </div>
+
+        <div class="h-px bg-asphalt-border"></div>
+
+        <button id="process-video-btn" disabled class="w-full bg-amber text-asphalt font-semibold text-sm rounded-md py-2.5 hover:brightness-110 transition disabled:opacity-40">
+          Analyze Video &amp; Generate Report
+        </button>
+      </div>
+
+      <div class="bg-asphalt-panel border border-asphalt-border rounded-xl p-5 flex flex-col gap-4">
+        <div class="flex items-center justify-between">
+          <p class="text-sm font-medium">Frame Annotation &amp; AI Analysis</p>
+          <div class="flex items-center gap-2 text-xs font-mono">
+            <span id="video-status-dot" class="status-dot bg-muted"></span>
+            <span id="video-status-label" class="text-muted">waiting for video</span>
+          </div>
+        </div>
+
+        <div id="video-placeholder" class="w-full aspect-video bg-asphalt rounded-lg border border-asphalt-border flex items-center justify-center">
+          <p class="text-sm text-muted">Upload a video to mark zones and run diagnostic analysis.</p>
+        </div>
+
+        <div id="canvas-wrap" class="hidden w-full rounded-lg border border-asphalt-border overflow-hidden bg-black">
+          <canvas id="lane-canvas" class="w-full block"></canvas>
+        </div>
+
+        <div id="progress-wrap" class="hidden">
+          <div class="flex items-center justify-between text-xs font-mono text-muted mb-1">
+            <span id="progress-label">Processing computer vision pipeline...</span>
+            <span id="progress-pct">0%</span>
+          </div>
+          <div class="w-full h-1.5 bg-asphalt rounded-full overflow-hidden border border-asphalt-border">
+            <div id="progress-bar" class="h-full bg-amber transition-all" style="width: 0%"></div>
+          </div>
+        </div>
+
+        <div id="results-wrap" class="hidden space-y-6">
+          <video id="output-video" controls playsinline preload="auto" class="w-full rounded-lg border border-asphalt-border bg-black"></video>
+
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3" id="class-totals-grid"></div>
+
+          <div id="anomalies-breakdown-card" class="bg-asphalt border border-asphalt-border rounded-lg p-4 space-y-2">
+            <p class="text-xs text-amber font-medium">Detected Traffic Anomalies &amp; Hazards</p>
+            <div id="anomalies-list" class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-mono"></div>
+          </div>
+
+          <div id="solutions-table-card" class="bg-asphalt border border-asphalt-border rounded-lg p-4 space-y-2 overflow-x-auto">
+            <p class="text-xs text-signal-green font-medium">Infrastructure Recommendation Matrix</p>
+            <table class="w-full text-xs text-left border-collapse">
+              <thead>
+                <tr class="border-b border-asphalt-border text-muted">
+                  <th class="p-2">Tier</th>
+                  <th class="p-2">Solution Package</th>
+                  <th class="p-2">Target Issues</th>
+                  <th class="p-2">Cost</th>
+                  <th class="p-2">Impact</th>
+                </tr>
+              </thead>
+              <tbody id="solutions-tbody" class="divide-y divide-asphalt-border text-paint"></tbody>
+            </table>
+          </div>
+
+          <div id="ai-report-card" class="bg-asphalt border border-asphalt-border rounded-lg p-5">
+            <div id="ai-report-content" class="markdown-body"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+<script>
+(function () {
+  "use strict";
+
+  const tabSim = document.getElementById("tab-sim");
+  const tabVideo = document.getElementById("tab-video");
+  const panelSim = document.getElementById("panel-sim");
+  const panelVideo = document.getElementById("panel-video");
+
+  tabSim.addEventListener("click", () => {
+    panelSim.classList.remove("hidden");
+    panelVideo.classList.add("hidden");
+    tabSim.className = "px-4 py-2 rounded-md text-sm font-medium transition-colors bg-amber text-asphalt";
+    tabVideo.className = "px-4 py-2 rounded-md text-sm font-medium transition-colors text-muted hover:text-paint";
+  });
+
+  tabVideo.addEventListener("click", () => {
+    panelVideo.classList.remove("hidden");
+    panelSim.classList.add("hidden");
+    tabVideo.className = "px-4 py-2 rounded-md text-sm font-medium transition-colors bg-amber text-asphalt";
+    tabSim.className = "px-4 py-2 rounded-md text-sm font-medium transition-colors text-muted hover:text-paint";
+  });
+
+  async function api(path, options) {
+    const res = await fetch(path, options);
+    let body = null;
+    try { body = await res.json(); } catch (e) { }
+    if (!res.ok) throw new Error((body && body.detail) ? body.detail : res.statusText);
+    return body;
+  }
+
+  // --- Module 1 Logic ---
+  const runSimBtn = document.getElementById("run-sim-btn");
+  const stopSimBtn = document.getElementById("stop-sim-btn");
+  const simErrorEl = document.getElementById("sim-error");
+  const simStatusDot = document.getElementById("sim-status-dot");
+  const simStatusLabel = document.getElementById("sim-status-label");
+  const simTelemetry = document.getElementById("sim-telemetry");
+  const simIframe = document.getElementById("sim-iframe");
+  const simPlaceholder = document.getElementById("sim-placeholder");
+  const simPlaceholderText = document.getElementById("sim-placeholder-text");
+  const networkSelect = document.getElementById("network-select");
+
+  let simPollTimer = null;
+  let simIframeLoaded = false;
+
+  async function loadNetworks() {
+    try {
+      const data = await api("/api/networks");
+      networkSelect.innerHTML = '<option value="">⚡ Auto-Generate Live Map from GPS</option>';
+      (data.networks || []).forEach((name) => {
+        const opt = document.createElement("option");
+        opt.value = name;
+        opt.textContent = name;
+        networkSelect.appendChild(opt);
+      });
+    } catch (e) {}
+  }
+  loadNetworks();
+
+  function setSimStatus(status, message) {
+    const isRunning = status === 'running';
+    const isPrep = status === 'preparing' || status === 'starting' || status === 'pending';
+    simStatusDot.className = "status-dot " + (isRunning ? 'bg-signal-green pulse' : (isPrep ? 'bg-signal-blue pulse' : 'bg-muted'));
+    simStatusLabel.textContent = status;
+    if (message) {
+      simErrorEl.textContent = status === "error" ? message : "";
+      simErrorEl.classList.toggle("hidden", status !== "error");
+    }
+  }
+
+  async function pollSimStatus(jobId) {
+    try {
+      const data = await api("/api/simulate/" + jobId);
+      setSimStatus(data.status, data.message);
+      simTelemetry.textContent = "Status: " + data.message;
+
+      if (data.status === "preparing" || data.status === "starting" || data.status === "pending") {
+        simPlaceholderText.textContent = "⏳ " + (data.message || "Preparing map and traffic...");
+        stopSimBtn.classList.remove("hidden");
+      }
+
+      if (data.status === "running" && data.novnc_url) {
+        stopSimBtn.classList.remove("hidden");
+        if (!simIframeLoaded) {
+          let streamUrl = data.novnc_url;
+          if (!streamUrl.startsWith("http")) {
+            streamUrl = window.location.protocol + "//" + window.location.hostname + ":6080" + streamUrl;
+          }
+          streamUrl += (streamUrl.includes('?') ? '&' : '?') + 't=' + Date.now();
+          simIframe.src = streamUrl;
+          simIframe.classList.remove("hidden");
+          simPlaceholder.classList.add("hidden");
+          simIframeLoaded = true;
+        }
+      }
+
+      if (data.status === "finished" || data.status === "error" || data.status === "stopped") {
+        if (simPollTimer) clearInterval(simPollTimer);
+        stopSimBtn.classList.add("hidden");
+        runSimBtn.disabled = false;
+      }
+    } catch (e) {
+      if (simPollTimer) clearInterval(simPollTimer);
+      runSimBtn.disabled = false;
+    }
+  }
+
+  runSimBtn.addEventListener("click", async () => {
+    simErrorEl.classList.add("hidden");
+    runSimBtn.disabled = true;
+    simIframeLoaded = false;
+    simIframe.src = "about:blank";
+    simIframe.classList.add("hidden");
+    simPlaceholder.classList.remove("hidden");
+    simPlaceholderText.textContent = "⏳ Initializing automated simulation pipeline...";
+
+    const payload = {
+      center_lat: parseFloat(document.getElementById("center-lat").value),
+      center_lon: parseFloat(document.getElementById("center-lon").value),
+      radius: parseFloat(document.getElementById("radius").value),
+      injection_rate: parseFloat(document.getElementById("injection-rate").value),
+      step_delay: parseInt(document.getElementById("step-delay").value, 10),
+      network_file: networkSelect.value || null,
+    };
+
+    try {
+      setSimStatus("starting", "");
+      const data = await api("/api/simulate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      simPollTimer = setInterval(() => pollSimStatus(data.job_id), 1200);
+      stopSimBtn.dataset.jobId = data.job_id;
+    } catch (e) {
+      setSimStatus("error", e.message);
+      runSimBtn.disabled = false;
+    }
+  });
+
+  stopSimBtn.addEventListener("click", async () => {
+    const jobId = stopSimBtn.dataset.jobId;
+    if (!jobId) return;
+    await api("/api/simulate/" + jobId + "/stop", { method: "POST" });
+    if (simPollTimer) clearInterval(simPollTimer);
+    setSimStatus("finished", "Simulation stopped.");
+    stopSimBtn.classList.add("hidden");
+    runSimBtn.disabled = false;
+  });
+
+  // --- Module 2 Video Analysis Logic ---
+  const videoDropzoneLabel = document.getElementById("video-dropzone-label");
+  const videoInput = document.getElementById("video-input");
+  const videoMeta = document.getElementById("video-meta");
+  const videoErrorEl = document.getElementById("video-error");
+  const toolSection = document.getElementById("tool-section");
+  const toolLaneBtn = document.getElementById("tool-lane");
+  const toolIntersectionBtn = document.getElementById("tool-intersection");
+  const toolCrosswalkBtn = document.getElementById("tool-crosswalk");
+  const toolLineBtn = document.getElementById("tool-line");
+  const toolHint = document.getElementById("tool-hint");
+  const finishZoneBtn = document.getElementById("finish-zone-btn");
+  const clearMarksBtn = document.getElementById("clear-marks-btn");
+  const shapeListEl = document.getElementById("shape-list");
+  const processVideoBtn = document.getElementById("process-video-btn");
+
+  const videoPlaceholder = document.getElementById("video-placeholder");
+  const canvasWrap = document.getElementById("canvas-wrap");
+  const canvas = document.getElementById("lane-canvas");
+  const ctx = canvas.getContext("2d");
+  const videoStatusDot = document.getElementById("video-status-dot");
+  const videoStatusLabel = document.getElementById("video-status-label");
+  const progressWrap = document.getElementById("progress-wrap");
+  const progressBar = document.getElementById("progress-bar");
+  const progressPct = document.getElementById("progress-pct");
+  const resultsWrap = document.getElementById("results-wrap");
+  const outputVideoEl = document.getElementById("output-video");
+  const classTotalsGrid = document.getElementById("class-totals-grid");
+  const anomaliesListEl = document.getElementById("anomalies-list");
+  const solutionsTbody = document.getElementById("solutions-tbody");
+  const aiReportContent = document.getElementById("ai-report-content");
+
+  let videoId = null;
+  let frameImage = null;
+  let currentTool = "lane";
+  let activePoints = [];
+  let laneZones = [];
+  let intersectionZone = null;
+  let crosswalkZone = null;
+  let countingLines = [];
+  let videoPollTimer = null;
+
+  function setVideoTool(tool) {
+    currentTool = tool;
+    activePoints = [];
+    [toolLaneBtn, toolIntersectionBtn, toolCrosswalkBtn, toolLineBtn].forEach(b => {
+      b.className = "text-xs font-medium rounded-md py-1.5 text-muted";
+    });
+    if (tool === 'lane') toolLaneBtn.className = "text-xs font-medium rounded-md py-1.5 bg-amber text-asphalt";
+    if (tool === 'intersection') toolIntersectionBtn.className = "text-xs font-medium rounded-md py-1.5 bg-amber text-asphalt";
+    if (tool === 'crosswalk') toolCrosswalkBtn.className = "text-xs font-medium rounded-md py-1.5 bg-amber text-asphalt";
+    if (tool === 'line') toolLineBtn.className = "text-xs font-medium rounded-md py-1.5 bg-amber text-asphalt";
+
+    toolHint.textContent = tool === 'line' ? "Click 2 points to draw a counting line." : "Click 4 points to define a polygon zone.";
+    drawCanvas();
+  }
+
+  toolLaneBtn.onclick = () => setVideoTool('lane');
+  toolIntersectionBtn.onclick = () => setVideoTool('intersection');
+  toolCrosswalkBtn.onclick = () => setVideoTool('crosswalk');
+  toolLineBtn.onclick = () => setVideoTool('line');
+
+  function updateShapeList() {
+    shapeListEl.innerHTML = "";
+    laneZones.forEach((_, i) => {
+      const li = document.createElement("li");
+      li.className = "flex items-center justify-between";
+      li.innerHTML = `<span>Lane ${i + 1}</span><button class="text-muted hover:text-signal-red" onclick="removeZone('lane', ${i})">remove</button>`;
+      shapeListEl.appendChild(li);
+    });
+    if (intersectionZone) {
+      const li = document.createElement("li");
+      li.className = "flex items-center justify-between";
+      li.innerHTML = `<span>Intersection Box</span><button class="text-muted hover:text-signal-red" onclick="removeZone('intersection')">remove</button>`;
+      shapeListEl.appendChild(li);
+    }
+    if (crosswalkZone) {
+      const li = document.createElement("li");
+      li.className = "flex items-center justify-between";
+      li.innerHTML = `<span>Crosswalk Zone</span><button class="text-muted hover:text-signal-red" onclick="removeZone('crosswalk')">remove</button>`;
+      shapeListEl.appendChild(li);
+    }
+    countingLines.forEach((_, i) => {
+      const li = document.createElement("li");
+      li.className = "flex items-center justify-between";
+      li.innerHTML = `<span>Line ${i + 1}</span><button class="text-muted hover:text-signal-red" onclick="removeZone('line', ${i})">remove</button>`;
+      shapeListEl.appendChild(li);
+    });
+
+    const hasAny = laneZones.length > 0 || intersectionZone || crosswalkZone || countingLines.length > 0;
+    processVideoBtn.disabled = !(videoId && hasAny);
+  }
+
+  window.removeZone = function(type, index) {
+    if (type === 'lane') laneZones.splice(index, 1);
+    if (type === 'intersection') intersectionZone = null;
+    if (type === 'crosswalk') crosswalkZone = null;
+    if (type === 'line') countingLines.splice(index, 1);
+    updateShapeList();
+    drawCanvas();
+  };
+
+  function drawCanvas() {
+    if (!frameImage) return;
+    ctx.drawImage(frameImage, 0, 0, canvas.width, canvas.height);
+
+    laneZones.forEach((poly) => {
+      ctx.beginPath();
+      poly.forEach(([x, y], idx) => idx === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y));
+      ctx.closePath();
+      ctx.fillStyle = "rgba(255, 191, 0, 0.2)";
+      ctx.fill();
+      ctx.strokeStyle = "#F2B705";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    });
+
+    if (intersectionZone) {
+      ctx.beginPath();
+      intersectionZone.forEach(([x, y], idx) => idx === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y));
+      ctx.closePath();
+      ctx.fillStyle = "rgba(255, 0, 0, 0.2)";
+      ctx.fill();
+      ctx.strokeStyle = "#FF5C5C";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    if (crosswalkZone) {
+      ctx.beginPath();
+      crosswalkZone.forEach(([x, y], idx) => idx === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y));
+      ctx.closePath();
+      ctx.fillStyle = "rgba(255, 0, 255, 0.2)";
+      ctx.fill();
+      ctx.strokeStyle = "#FF00FF";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    countingLines.forEach(([[x1, y1], [x2, y2]]) => {
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.strokeStyle = "#4DA3FF";
+      ctx.lineWidth = 3;
+      ctx.stroke();
+    });
+
+    if (activePoints.length > 0) {
+      ctx.beginPath();
+      activePoints.forEach(([x, y], idx) => idx === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y));
+      ctx.strokeStyle = "#38bdf8";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      activePoints.forEach(([x, y]) => {
+        ctx.beginPath();
+        ctx.arc(x, y, 4, 0, Math.PI * 2);
+        ctx.fillStyle = "#38bdf8";
+        ctx.fill();
+      });
+    }
+  }
+
+  canvas.addEventListener("click", (evt) => {
+    if (!frameImage) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = Math.round((evt.clientX - rect.left) * (canvas.width / rect.width));
+    const y = Math.round((evt.clientY - rect.top) * (canvas.height / rect.height));
+
+    activePoints.push([x, y]);
+
+    if (currentTool === 'line' && activePoints.length === 2) {
+      countingLines.push([...activePoints]);
+      activePoints = [];
+      updateShapeList();
+    } else if (activePoints.length === 4) {
+      if (currentTool === 'lane') laneZones.push([...activePoints]);
+      if (currentTool === 'intersection') intersectionZone = [...activePoints];
+      if (currentTool === 'crosswalk') crosswalkZone = [...activePoints];
+      activePoints = [];
+      updateShapeList();
+    }
+    drawCanvas();
+  });
+
+  clearMarksBtn.onclick = () => {
+    activePoints = [];
+    laneZones = [];
+    intersectionZone = null;
+    crosswalkZone = null;
+    countingLines = [];
+    updateShapeList();
+    drawCanvas();
+  };
+
+  videoInput.addEventListener("change", async () => {
+    const file = videoInput.files[0];
+    if (!file) return;
+    videoErrorEl.classList.add("hidden");
+    videoDropzoneLabel.textContent = "Extracting frame from " + file.name + "...";
+
+    const form = new FormData();
+    form.append("file", file);
+    try {
+      const data = await api("/api/extract-first-frame", { method: "POST", body: form });
+      videoId = data.video_id;
+      videoDropzoneLabel.textContent = file.name;
+      videoMeta.textContent = `${data.video_width}×${data.video_height} px`;
+      videoMeta.classList.remove("hidden");
+
+      const img = new Image();
+      img.onload = () => {
+        frameImage = img;
+        canvas.width = data.video_width;
+        canvas.height = data.video_height;
+        videoPlaceholder.classList.add("hidden");
+        canvasWrap.classList.remove("hidden");
+        resultsWrap.classList.add("hidden");
+        progressWrap.classList.add("hidden");
+        toolSection.classList.remove("opacity-40", "pointer-events-none");
+        setVideoTool('lane');
+        updateShapeList();
+        drawCanvas();
+      };
+      img.src = data.frame_data_url;
+    } catch (e) {
+      videoErrorEl.textContent = e.message;
+      videoErrorEl.classList.remove("hidden");
+    }
+  });
+
+  processVideoBtn.onclick = async () => {
+    if (!videoId) return;
+    processVideoBtn.disabled = true;
+    canvasWrap.classList.add("hidden");
+    progressWrap.classList.remove("hidden");
+    progressBar.style.width = "0%";
+
+    const payload = {
+      video_id: videoId,
+      canvas_width: canvas.width,
+      canvas_height: canvas.height,
+      lane_annotations: JSON.stringify({
+        lane_zones: laneZones,
+        intersection_zone: intersectionZone,
+        crosswalk_zone: crosswalkZone,
+        counting_lines: countingLines
+      })
+    };
+
+    try {
+      const data = await api("/api/analyze-video", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      videoPollTimer = setInterval(async () => {
+        const res = await api("/api/analyze-video/" + data.job_id);
+        const pct = Math.round((res.progress || 0) * 100);
+        progressBar.style.width = pct + "%";
+        progressPct.textContent = pct + "%";
+
+        if (res.status === "finished") {
+          clearInterval(videoPollTimer);
+          progressWrap.classList.add("hidden");
+          resultsWrap.classList.remove("hidden");
+
+          // Force clean video player re-initialization with MIME type
+          const videoUrl = res.output_video_url + "?t=" + Date.now();
+          outputVideoEl.pause();
+          outputVideoEl.innerHTML = "";
+  
+          const sourceEl = document.createElement("source");
+          sourceEl.src = videoUrl;
+          sourceEl.type = "video/mp4";
+  
+          outputVideoEl.appendChild(sourceEl);
+          outputVideoEl.load();
+
+          // Render Class Totals
+          classTotalsGrid.innerHTML = "";
+          Object.entries(res.metrics.vehicle_class_totals || {}).forEach(([cls, count]) => {
+            const card = document.createElement("div");
+            card.className = "bg-asphalt border border-asphalt-border rounded-lg p-3 text-center";
+            card.innerHTML = `<p class="text-xl font-display font-semibold">${count}</p><p class="text-xs text-muted">${cls}</p>`;
+            classTotalsGrid.appendChild(card);
+          });
+
+          // Render Anomalies Breakdown
+          anomaliesListEl.innerHTML = "";
+          Object.entries(res.metrics.detected_anomalies_summary || {}).forEach(([issue, count]) => {
+            const item = document.createElement("div");
+            item.className = "flex items-center justify-between p-2 bg-asphalt-panel rounded border border-asphalt-border";
+            item.innerHTML = `<span>${issue}</span><span class="text-signal-red font-bold">${count}</span>`;
+            anomaliesListEl.appendChild(item);
+          });
+
+          // Render Solutions Table
+          solutionsTbody.innerHTML = "";
+          (res.solutions || []).forEach((s) => {
+            const tr = document.createElement("tr");
+            tr.innerHTML = `<td class="p-2 font-bold text-amber">${s.Tier}</td><td class="p-2">${s.Solution_Name}</td><td class="p-2 text-muted">${s.Target_Issues}</td><td class="p-2 text-signal-green">${s.Est_Cost}</td><td class="p-2">${s.Traffic_Flow_Impact}</td>`;
+            solutionsTbody.appendChild(tr);
+          });
+
+          // Render AI Report
+          if (res.ai_report) {
+            aiReportContent.innerHTML = marked.parse(res.ai_report);
+          }
+        } else if (res.status === "error") {
+          clearInterval(videoPollTimer);
+          alert("Error: " + res.message);
+          progressWrap.classList.add("hidden");
+          canvasWrap.classList.remove("hidden");
+          processVideoBtn.disabled = false;
+        }
+      }, 1200);
+
+    } catch (e) {
+      alert(e.message);
+      progressWrap.classList.add("hidden");
+      canvasWrap.classList.remove("hidden");
+      processVideoBtn.disabled = false;
+    }
+  };
+})();
+</script>
+</body>
+</html>
