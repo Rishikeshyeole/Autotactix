@@ -3,7 +3,7 @@ sumo_utils.py
 -------------
 Automated pipeline for AutoTactix:
 1. Converts GPS point + radius to an OSM bounding box
-2. Downloads live map data via Overpass API
+2. Downloads live map data via Overpass API with mirror failover
 3. Compiles a geo-referenced SUMO network with netconvert
 4. Generates random heavy traffic using SUMO's randomTrips.py
 5. Executes sumo-gui via TraCI with high-resolution view controls
@@ -81,10 +81,10 @@ def bbox_from_point(lat: float, lon: float, radius_m: float) -> Tuple[float, flo
 
 
 def download_osm_data(bbox: Tuple[float, float, float, float], output_osm_path: Path) -> Path:
-    """Downloads OSM road network data from Overpass API mirrors."""
+    """Downloads OSM road network data from robust Overpass API mirrors with short timeouts."""
     south, west, north, east = bbox
     query = (
-        "[out:xml][timeout:60];\n"
+        "[out:xml][timeout:25];\n"
         "(\n"
         f'  way["highway"]({south},{west},{north},{east});\n'
         ");\n"
@@ -96,15 +96,17 @@ def download_osm_data(bbox: Tuple[float, float, float, float], output_osm_path: 
         "Content-Type": "application/x-www-form-urlencoded",
     }
     mirrors = [
-        "https://overpass-api.de/api/interpreter",
         "https://overpass.kumi.systems/api/interpreter",
+        "https://overpass-api.de/api/interpreter",
+        "https://overpass.private.coffee/api/interpreter",
+        "https://overpass.nchc.org.tw/api/interpreter",
         "https://lz4.overpass-api.de/api/interpreter",
     ]
     last_error = None
     for url in mirrors:
         try:
             logger.info("Downloading OSM data from Overpass mirror: %s", url)
-            resp = requests.post(url, data={"data": query}, headers=headers, timeout=60)
+            resp = requests.post(url, data={"data": query}, headers=headers, timeout=18)
             resp.raise_for_status()
             if b"<osm" not in resp.content.lower():
                 raise ValueError("Response does not contain valid XML OSM data.")
@@ -114,7 +116,7 @@ def download_osm_data(bbox: Tuple[float, float, float, float], output_osm_path: 
         except Exception as exc:
             logger.warning("Overpass mirror %s failed: %s", url, exc)
             last_error = exc
-    raise RuntimeError(f"All Overpass API mirrors failed. Last error: {last_error}")
+    raise RuntimeError(f"All Overpass API mirrors failed or timed out. Last error: {last_error}")
 
 
 def generate_sumo_net(osm_file: Path, net_file: Path) -> Path:
@@ -195,7 +197,7 @@ class SimulationRunner:
         force_cleanup_traci()
 
         if self._thread and self._thread.is_alive() and threading.current_thread() != self._thread:
-            self._thread.join(timeout=5.0)
+            self._thread.join(timeout=3.0)
 
         with self._lock:
             self._running = False
@@ -355,7 +357,7 @@ class SimulationRunner:
             if not self._stop_requested:
                 job.status = "finished"
                 job.message = "Simulation completed successfully."
-                time.sleep(5)
+                time.sleep(3)
             else:
                 job.status = "stopped"
                 job.message = "Simulation manually stopped by user."

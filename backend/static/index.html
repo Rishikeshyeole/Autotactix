@@ -402,15 +402,6 @@
     stopSimBtn.classList.add("hidden");
     runSimBtn.disabled = false;
   });
-
-  // Auto-run simulation if launched via Try Now button
-  if (window.location.search.includes("autorun=true")) {
-    setTimeout(() => {
-      if (runSimBtn && !runSimBtn.disabled) {
-        runSimBtn.click();
-      }
-    }, 600);
-  }
 })();
 </script>
 </body>

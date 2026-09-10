@@ -7,9 +7,8 @@ export default function Hero() {
   const handleTryNow = () => {
     const apiBaseUrl =
       import.meta.env.VITE_API_BASE_URL || 'http://161.118.190.216:8000';
-    // Redirect to the backend console UI with auto-run flag
-    const targetUrl = `${apiBaseUrl}/?autorun=true`;
-    window.open(targetUrl, '_blank', 'noopener,noreferrer');
+    // Open the backend console UI cleanly without auto-triggering
+    window.open(`${apiBaseUrl}/`, '_blank', 'noopener,noreferrer');
   };
 
   return (
