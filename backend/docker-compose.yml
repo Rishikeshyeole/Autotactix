@@ -8,19 +8,15 @@ services:
     image: autotactix:latest
     container_name: autotactix
     ports:
-      - "8000:8000"   # FastAPI dashboard + REST API
-      - "6080:6080"   # noVNC — live SUMO simulation stream
+      - "8000:8000"
+      - "6080:6080"
     environment:
       - DISPLAY=:99
       - TRACI_PORT=8813
     volumes:
-      # Persist uploaded SUMO networks, uploaded videos, and processed output
-      # videos across container restarts/rebuilds.
       - ./networks:/app/networks
       - ./uploads:/app/uploads
       - ./outputs:/app/outputs
-    # sumo-gui + Xvfb + a browser-facing noVNC canvas are all more stable with
-    # a larger shared-memory segment than Docker's 64MB default.
     shm_size: "1gb"
     restart: unless-stopped
     healthcheck:
