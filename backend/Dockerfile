@@ -62,12 +62,13 @@ EXPOSE 8000 6080
 #   5. Start websockify/noVNC bridging browser websockets on port 6080.
 #   6. Finally start the FastAPI app with uvicorn.
 # ---------------------------------------------------------------------------
-CMD ["sh", "-c", "\
+    CMD ["sh", "-c", "\
     rm -f /tmp/.X99-lock && \
     Xvfb :99 -screen 0 2560x1440x24 & \
-    sleep 1 && \
+    sleep 2 && \
     fluxbox & \
-    x11vnc -display :99 -forever -shared -nopw -rfbport 5900 & \
-    websockify --web=/usr/share/novnc/ 6080 localhost:5900 & \
+    x11vnc -display :99 -forever -shared -nopw -rfbport 5900 -listen 127.0.0.1 & \
+    sleep 1 && \
+    websockify --web=/usr/share/novnc/ 6080 127.0.0.1:5900 & \
     uvicorn app:app --host 0.0.0.0 --port 8000 \
 "]
