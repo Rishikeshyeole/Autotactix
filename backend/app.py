@@ -42,7 +42,7 @@ app = FastAPI(title="AutoTactix", description="Smart Traffic Management & Simula
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"], # Allows all origins (Vercel, Localhost, etc.)
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

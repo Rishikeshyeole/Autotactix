@@ -1,14 +1,13 @@
+import { ArrowRight, BarChart3, Leaf, MapPin } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { BarChart3, MapPin, Leaf, ArrowRight } from 'lucide-react';
 import heroImage from '../assets/hero/traffic-city.svg';
 import logo from '../assets/logo/autotactix-logo.svg';
 
 export default function Hero() {
-  const scrollToContact = () => {
-    document.getElementById('contact')?.scrollIntoView({
-      behavior: 'smooth',
-      block: 'start',
-    });
+  const handleTryNow = () => {
+    const novncUrl =
+      import.meta.env.VITE_NOVNC_URL || 'http://161.118.190.216:6080/vnc.html';
+    window.open(novncUrl, '_blank', 'noopener,noreferrer');
   };
 
   return (
@@ -40,7 +39,7 @@ export default function Hero() {
 
           <button
             type="button"
-            onClick={scrollToContact}
+            onClick={handleTryNow}
             className="focus-ring group mt-8 inline-flex items-center gap-2 rounded-full px-6 py-3 text-sm font-semibold text-white shadow-sm transition-all duration-200 ease-smooth hover:shadow-md active:scale-[0.97]"
             style={{ backgroundColor: 'var(--primary)' }}
             onMouseEnter={(e) =>
