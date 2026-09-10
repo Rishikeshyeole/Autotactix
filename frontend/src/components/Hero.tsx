@@ -5,9 +5,11 @@ import logo from '../assets/logo/autotactix-logo.svg';
 
 export default function Hero() {
   const handleTryNow = () => {
-    const novncUrl =
-      import.meta.env.VITE_NOVNC_URL || 'http://161.118.190.216:6080/vnc.html';
-    window.open(novncUrl, '_blank', 'noopener,noreferrer');
+    const apiBaseUrl =
+      import.meta.env.VITE_API_BASE_URL || 'http://161.118.190.216:8000';
+    // Redirect to the backend console UI with auto-run flag
+    const targetUrl = `${apiBaseUrl}/?autorun=true`;
+    window.open(targetUrl, '_blank', 'noopener,noreferrer');
   };
 
   return (

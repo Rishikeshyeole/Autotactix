@@ -24,13 +24,10 @@ fi
 fluxbox &
 sleep 1
 
-# 4. Start SUMO GUI in background
-nohup sumo-gui > /tmp/sumo_gui.log 2>&1 &
-
-# 5. Start x11vnc and noVNC WebSocket bridge
+# 4. Start x11vnc and noVNC WebSocket bridge
 x11vnc -display :99 -forever -shared -nopw -rfbport 5900 -listen 127.0.0.1 &
 sleep 1
 websockify --web=/usr/share/novnc/ 6080 127.0.0.1:5900 &
 
-# 6. Launch FastAPI server
+# 5. Launch FastAPI server (TraCI will trigger sumo-gui on demand)
 exec uvicorn app:app --host 0.0.0.0 --port 8000

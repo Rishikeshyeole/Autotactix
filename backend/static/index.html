@@ -44,8 +44,6 @@
   @keyframes pulse-ring { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 
   #lane-canvas { cursor: crosshair; touch-action: none; }
-  .lane-swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
-  
   .markdown-body h1 { font-size: 1.5rem; font-weight: 700; color: #F2B705; margin-bottom: 0.75rem; }
   .markdown-body h2 { font-size: 1.25rem; font-weight: 600; color: #38bdf8; margin-top: 1.25rem; margin-bottom: 0.5rem; }
   .markdown-body h3 { font-size: 1rem; font-weight: 600; color: #ECEAE2; margin-top: 1rem; margin-bottom: 0.25rem; }
@@ -80,7 +78,7 @@
 
   <main class="max-w-7xl mx-auto px-6 py-8">
 
-    <!-- ============================== MODULE 1: SIMULATION ============================== -->
+    <!-- Module 1: Simulation -->
     <section id="panel-sim" class="grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-6">
       <div class="bg-asphalt-panel border border-asphalt-border rounded-xl p-5 space-y-5 h-fit">
         <div>
@@ -157,7 +155,7 @@
       </div>
     </section>
 
-    <!-- ============================== MODULE 2: VIDEO ANALYSIS ============================== -->
+    <!-- Module 2: Video Analysis -->
     <section id="panel-video" class="hidden grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-6">
       <div class="bg-asphalt-panel border border-asphalt-border rounded-xl p-5 space-y-5 h-fit">
         <div>
@@ -226,14 +224,11 @@
 
         <div id="results-wrap" class="hidden space-y-6">
           <video id="output-video" controls playsinline preload="auto" class="w-full rounded-lg border border-asphalt-border bg-black"></video>
-
           <div class="grid grid-cols-2 sm:grid-cols-4 gap-3" id="class-totals-grid"></div>
-
           <div id="anomalies-breakdown-card" class="bg-asphalt border border-asphalt-border rounded-lg p-4 space-y-2">
             <p class="text-xs text-amber font-medium">Detected Traffic Anomalies &amp; Hazards</p>
             <div id="anomalies-list" class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-mono"></div>
           </div>
-
           <div id="solutions-table-card" class="bg-asphalt border border-asphalt-border rounded-lg p-4 space-y-2 overflow-x-auto">
             <p class="text-xs text-signal-green font-medium">Infrastructure Recommendation Matrix</p>
             <table class="w-full text-xs text-left border-collapse">
@@ -249,7 +244,6 @@
               <tbody id="solutions-tbody" class="divide-y divide-asphalt-border text-paint"></tbody>
             </table>
           </div>
-
           <div id="ai-report-card" class="bg-asphalt border border-asphalt-border rounded-lg p-5">
             <div id="ai-report-content" class="markdown-body"></div>
           </div>
@@ -409,332 +403,14 @@
     runSimBtn.disabled = false;
   });
 
-  // --- Module 2 Video Analysis Logic ---
-  const videoDropzoneLabel = document.getElementById("video-dropzone-label");
-  const videoInput = document.getElementById("video-input");
-  const videoMeta = document.getElementById("video-meta");
-  const videoErrorEl = document.getElementById("video-error");
-  const toolSection = document.getElementById("tool-section");
-  const toolLaneBtn = document.getElementById("tool-lane");
-  const toolIntersectionBtn = document.getElementById("tool-intersection");
-  const toolCrosswalkBtn = document.getElementById("tool-crosswalk");
-  const toolLineBtn = document.getElementById("tool-line");
-  const toolHint = document.getElementById("tool-hint");
-  const finishZoneBtn = document.getElementById("finish-zone-btn");
-  const clearMarksBtn = document.getElementById("clear-marks-btn");
-  const shapeListEl = document.getElementById("shape-list");
-  const processVideoBtn = document.getElementById("process-video-btn");
-
-  const videoPlaceholder = document.getElementById("video-placeholder");
-  const canvasWrap = document.getElementById("canvas-wrap");
-  const canvas = document.getElementById("lane-canvas");
-  const ctx = canvas.getContext("2d");
-  const videoStatusDot = document.getElementById("video-status-dot");
-  const videoStatusLabel = document.getElementById("video-status-label");
-  const progressWrap = document.getElementById("progress-wrap");
-  const progressBar = document.getElementById("progress-bar");
-  const progressPct = document.getElementById("progress-pct");
-  const resultsWrap = document.getElementById("results-wrap");
-  const outputVideoEl = document.getElementById("output-video");
-  const classTotalsGrid = document.getElementById("class-totals-grid");
-  const anomaliesListEl = document.getElementById("anomalies-list");
-  const solutionsTbody = document.getElementById("solutions-tbody");
-  const aiReportContent = document.getElementById("ai-report-content");
-
-  let videoId = null;
-  let frameImage = null;
-  let currentTool = "lane";
-  let activePoints = [];
-  let laneZones = [];
-  let intersectionZone = null;
-  let crosswalkZone = null;
-  let countingLines = [];
-  let videoPollTimer = null;
-
-  function setVideoTool(tool) {
-    currentTool = tool;
-    activePoints = [];
-    [toolLaneBtn, toolIntersectionBtn, toolCrosswalkBtn, toolLineBtn].forEach(b => {
-      b.className = "text-xs font-medium rounded-md py-1.5 text-muted";
-    });
-    if (tool === 'lane') toolLaneBtn.className = "text-xs font-medium rounded-md py-1.5 bg-amber text-asphalt";
-    if (tool === 'intersection') toolIntersectionBtn.className = "text-xs font-medium rounded-md py-1.5 bg-amber text-asphalt";
-    if (tool === 'crosswalk') toolCrosswalkBtn.className = "text-xs font-medium rounded-md py-1.5 bg-amber text-asphalt";
-    if (tool === 'line') toolLineBtn.className = "text-xs font-medium rounded-md py-1.5 bg-amber text-asphalt";
-
-    toolHint.textContent = tool === 'line' ? "Click 2 points to draw a counting line." : "Click 4 points to define a polygon zone.";
-    drawCanvas();
+  // Auto-run simulation if launched via Try Now button
+  if (window.location.search.includes("autorun=true")) {
+    setTimeout(() => {
+      if (runSimBtn && !runSimBtn.disabled) {
+        runSimBtn.click();
+      }
+    }, 600);
   }
-
-  toolLaneBtn.onclick = () => setVideoTool('lane');
-  toolIntersectionBtn.onclick = () => setVideoTool('intersection');
-  toolCrosswalkBtn.onclick = () => setVideoTool('crosswalk');
-  toolLineBtn.onclick = () => setVideoTool('line');
-
-  function updateShapeList() {
-    shapeListEl.innerHTML = "";
-    laneZones.forEach((_, i) => {
-      const li = document.createElement("li");
-      li.className = "flex items-center justify-between";
-      li.innerHTML = `<span>Lane ${i + 1}</span><button class="text-muted hover:text-signal-red" onclick="removeZone('lane', ${i})">remove</button>`;
-      shapeListEl.appendChild(li);
-    });
-    if (intersectionZone) {
-      const li = document.createElement("li");
-      li.className = "flex items-center justify-between";
-      li.innerHTML = `<span>Intersection Box</span><button class="text-muted hover:text-signal-red" onclick="removeZone('intersection')">remove</button>`;
-      shapeListEl.appendChild(li);
-    }
-    if (crosswalkZone) {
-      const li = document.createElement("li");
-      li.className = "flex items-center justify-between";
-      li.innerHTML = `<span>Crosswalk Zone</span><button class="text-muted hover:text-signal-red" onclick="removeZone('crosswalk')">remove</button>`;
-      shapeListEl.appendChild(li);
-    }
-    countingLines.forEach((_, i) => {
-      const li = document.createElement("li");
-      li.className = "flex items-center justify-between";
-      li.innerHTML = `<span>Line ${i + 1}</span><button class="text-muted hover:text-signal-red" onclick="removeZone('line', ${i})">remove</button>`;
-      shapeListEl.appendChild(li);
-    });
-
-    const hasAny = laneZones.length > 0 || intersectionZone || crosswalkZone || countingLines.length > 0;
-    processVideoBtn.disabled = !(videoId && hasAny);
-  }
-
-  window.removeZone = function(type, index) {
-    if (type === 'lane') laneZones.splice(index, 1);
-    if (type === 'intersection') intersectionZone = null;
-    if (type === 'crosswalk') crosswalkZone = null;
-    if (type === 'line') countingLines.splice(index, 1);
-    updateShapeList();
-    drawCanvas();
-  };
-
-  function drawCanvas() {
-    if (!frameImage) return;
-    ctx.drawImage(frameImage, 0, 0, canvas.width, canvas.height);
-
-    laneZones.forEach((poly) => {
-      ctx.beginPath();
-      poly.forEach(([x, y], idx) => idx === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y));
-      ctx.closePath();
-      ctx.fillStyle = "rgba(255, 191, 0, 0.2)";
-      ctx.fill();
-      ctx.strokeStyle = "#F2B705";
-      ctx.lineWidth = 2;
-      ctx.stroke();
-    });
-
-    if (intersectionZone) {
-      ctx.beginPath();
-      intersectionZone.forEach(([x, y], idx) => idx === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y));
-      ctx.closePath();
-      ctx.fillStyle = "rgba(255, 0, 0, 0.2)";
-      ctx.fill();
-      ctx.strokeStyle = "#FF5C5C";
-      ctx.lineWidth = 2;
-      ctx.stroke();
-    }
-
-    if (crosswalkZone) {
-      ctx.beginPath();
-      crosswalkZone.forEach(([x, y], idx) => idx === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y));
-      ctx.closePath();
-      ctx.fillStyle = "rgba(255, 0, 255, 0.2)";
-      ctx.fill();
-      ctx.strokeStyle = "#FF00FF";
-      ctx.lineWidth = 2;
-      ctx.stroke();
-    }
-
-    countingLines.forEach(([[x1, y1], [x2, y2]]) => {
-      ctx.beginPath();
-      ctx.moveTo(x1, y1);
-      ctx.lineTo(x2, y2);
-      ctx.strokeStyle = "#4DA3FF";
-      ctx.lineWidth = 3;
-      ctx.stroke();
-    });
-
-    if (activePoints.length > 0) {
-      ctx.beginPath();
-      activePoints.forEach(([x, y], idx) => idx === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y));
-      ctx.strokeStyle = "#38bdf8";
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      activePoints.forEach(([x, y]) => {
-        ctx.beginPath();
-        ctx.arc(x, y, 4, 0, Math.PI * 2);
-        ctx.fillStyle = "#38bdf8";
-        ctx.fill();
-      });
-    }
-  }
-
-  canvas.addEventListener("click", (evt) => {
-    if (!frameImage) return;
-    const rect = canvas.getBoundingClientRect();
-    const x = Math.round((evt.clientX - rect.left) * (canvas.width / rect.width));
-    const y = Math.round((evt.clientY - rect.top) * (canvas.height / rect.height));
-
-    activePoints.push([x, y]);
-
-    if (currentTool === 'line' && activePoints.length === 2) {
-      countingLines.push([...activePoints]);
-      activePoints = [];
-      updateShapeList();
-    } else if (activePoints.length === 4) {
-      if (currentTool === 'lane') laneZones.push([...activePoints]);
-      if (currentTool === 'intersection') intersectionZone = [...activePoints];
-      if (currentTool === 'crosswalk') crosswalkZone = [...activePoints];
-      activePoints = [];
-      updateShapeList();
-    }
-    drawCanvas();
-  });
-
-  clearMarksBtn.onclick = () => {
-    activePoints = [];
-    laneZones = [];
-    intersectionZone = null;
-    crosswalkZone = null;
-    countingLines = [];
-    updateShapeList();
-    drawCanvas();
-  };
-
-  videoInput.addEventListener("change", async () => {
-    const file = videoInput.files[0];
-    if (!file) return;
-    videoErrorEl.classList.add("hidden");
-    videoDropzoneLabel.textContent = "Extracting frame from " + file.name + "...";
-
-    const form = new FormData();
-    form.append("file", file);
-    try {
-      const data = await api("/api/extract-first-frame", { method: "POST", body: form });
-      videoId = data.video_id;
-      videoDropzoneLabel.textContent = file.name;
-      videoMeta.textContent = `${data.video_width}×${data.video_height} px`;
-      videoMeta.classList.remove("hidden");
-
-      const img = new Image();
-      img.onload = () => {
-        frameImage = img;
-        canvas.width = data.video_width;
-        canvas.height = data.video_height;
-        videoPlaceholder.classList.add("hidden");
-        canvasWrap.classList.remove("hidden");
-        resultsWrap.classList.add("hidden");
-        progressWrap.classList.add("hidden");
-        toolSection.classList.remove("opacity-40", "pointer-events-none");
-        setVideoTool('lane');
-        updateShapeList();
-        drawCanvas();
-      };
-      img.src = data.frame_data_url;
-    } catch (e) {
-      videoErrorEl.textContent = e.message;
-      videoErrorEl.classList.remove("hidden");
-    }
-  });
-
-  processVideoBtn.onclick = async () => {
-    if (!videoId) return;
-    processVideoBtn.disabled = true;
-    canvasWrap.classList.add("hidden");
-    progressWrap.classList.remove("hidden");
-    progressBar.style.width = "0%";
-
-    const payload = {
-      video_id: videoId,
-      canvas_width: canvas.width,
-      canvas_height: canvas.height,
-      lane_annotations: JSON.stringify({
-        lane_zones: laneZones,
-        intersection_zone: intersectionZone,
-        crosswalk_zone: crosswalkZone,
-        counting_lines: countingLines
-      })
-    };
-
-    try {
-      const data = await api("/api/analyze-video", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-
-      videoPollTimer = setInterval(async () => {
-        const res = await api("/api/analyze-video/" + data.job_id);
-        const pct = Math.round((res.progress || 0) * 100);
-        progressBar.style.width = pct + "%";
-        progressPct.textContent = pct + "%";
-
-        if (res.status === "finished") {
-          clearInterval(videoPollTimer);
-          progressWrap.classList.add("hidden");
-          resultsWrap.classList.remove("hidden");
-
-          // Force clean video player re-initialization with MIME type
-          const videoUrl = res.output_video_url + "?t=" + Date.now();
-          outputVideoEl.pause();
-          outputVideoEl.innerHTML = "";
-  
-          const sourceEl = document.createElement("source");
-          sourceEl.src = videoUrl;
-          sourceEl.type = "video/mp4";
-  
-          outputVideoEl.appendChild(sourceEl);
-          outputVideoEl.load();
-
-          // Render Class Totals
-          classTotalsGrid.innerHTML = "";
-          Object.entries(res.metrics.vehicle_class_totals || {}).forEach(([cls, count]) => {
-            const card = document.createElement("div");
-            card.className = "bg-asphalt border border-asphalt-border rounded-lg p-3 text-center";
-            card.innerHTML = `<p class="text-xl font-display font-semibold">${count}</p><p class="text-xs text-muted">${cls}</p>`;
-            classTotalsGrid.appendChild(card);
-          });
-
-          // Render Anomalies Breakdown
-          anomaliesListEl.innerHTML = "";
-          Object.entries(res.metrics.detected_anomalies_summary || {}).forEach(([issue, count]) => {
-            const item = document.createElement("div");
-            item.className = "flex items-center justify-between p-2 bg-asphalt-panel rounded border border-asphalt-border";
-            item.innerHTML = `<span>${issue}</span><span class="text-signal-red font-bold">${count}</span>`;
-            anomaliesListEl.appendChild(item);
-          });
-
-          // Render Solutions Table
-          solutionsTbody.innerHTML = "";
-          (res.solutions || []).forEach((s) => {
-            const tr = document.createElement("tr");
-            tr.innerHTML = `<td class="p-2 font-bold text-amber">${s.Tier}</td><td class="p-2">${s.Solution_Name}</td><td class="p-2 text-muted">${s.Target_Issues}</td><td class="p-2 text-signal-green">${s.Est_Cost}</td><td class="p-2">${s.Traffic_Flow_Impact}</td>`;
-            solutionsTbody.appendChild(tr);
-          });
-
-          // Render AI Report
-          if (res.ai_report) {
-            aiReportContent.innerHTML = marked.parse(res.ai_report);
-          }
-        } else if (res.status === "error") {
-          clearInterval(videoPollTimer);
-          alert("Error: " + res.message);
-          progressWrap.classList.add("hidden");
-          canvasWrap.classList.remove("hidden");
-          processVideoBtn.disabled = false;
-        }
-      }, 1200);
-
-    } catch (e) {
-      alert(e.message);
-      progressWrap.classList.add("hidden");
-      canvasWrap.classList.remove("hidden");
-      processVideoBtn.disabled = false;
-    }
-  };
 })();
 </script>
 </body>
