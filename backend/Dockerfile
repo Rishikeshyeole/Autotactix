@@ -43,7 +43,6 @@ RUN pip install --no-cache-dir -r requirements.txt \
 
 COPY app.py sumo_utils.py video_processor.py ./
 COPY static ./static
-COPY networks ./networks
 COPY entrypoint.sh /entrypoint.sh
 
 RUN mkdir -p uploads outputs \
