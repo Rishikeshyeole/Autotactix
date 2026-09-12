@@ -15,7 +15,6 @@ services:
       - TRACI_PORT=8813
       - GEMINI_API_KEY=${GEMINI_API_KEY}
     volumes:
-      - ./networks:/app/networks
       - ./uploads:/app/uploads
       - ./outputs:/app/outputs
       - ./static:/app/static
