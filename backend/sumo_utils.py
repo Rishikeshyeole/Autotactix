@@ -54,43 +54,22 @@ def get_free_port() -> int:
 
 def force_cleanup_traci():
     """Forcefully terminates all SUMO GUI instances and clears lingering TraCI sockets/labels."""
-    try:
-        main_mod = getattr(traci, "main", None)
-        if main_mod and hasattr(main_mod, "_connections"):
-            for label in list(main_mod._connections.keys()):
-                try:
-                    traci.switch(label)
-                    traci.close()
-                except Exception:
-                    pass
-            main_mod._connections.clear()
-    except Exception as exc:
-        logger.warning("Error clearing TraCI main connection registry: %s", exc)
-
-    try:
-        if hasattr(traci, "_connections"):
-            for label in list(traci._connections.keys()):
-                try:
-                    traci.switch(label)
-                    traci.close()
-                except Exception:
-                    pass
-            traci._connections.clear()
-    except Exception:
-        pass
-
-    try:
-        if traci.isLoaded():
-            traci.close()
-    except Exception:
-        pass
-
+    # 1. Kill OS processes FIRST so TraCI socket connections break immediately without hanging
     try:
         subprocess.run(["pkill", "-9", "-f", "sumo"], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
         subprocess.run(["pkill", "-9", "-f", "sumo-gui"], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
-        time.sleep(0.3)
-    except (FileNotFoundError, Exception):
+    except Exception:
         pass
+
+    # 2. Reset TraCI internal module registry state without making blocking network socket calls
+    for mod in (getattr(traci, "main", None), traci):
+        if mod and hasattr(mod, "_connections"):
+            try:
+                mod._connections.clear()
+            except Exception:
+                pass
+
+    time.sleep(0.2)
 
 
 def bbox_from_point(lat: float, lon: float, radius_m: float) -> Tuple[float, float, float, float]:

@@ -137,6 +137,11 @@ def stop_simulation(job_id: str):
         job.message = "Simulation manually stopped by user."
     return {"job_id": job_id, "status": "stopped"}
 
+@app.post("/api/simulate/stop-active")
+@app.post("/simulate/stop-active")
+def stop_active_simulation():
+    sumo_utils.runner.stop()
+    return {"status": "stopped", "message": "Active simulation stopped."}
 
 # ---------------------------------------------------------------------------
 # Module 2: AI video traffic analysis
