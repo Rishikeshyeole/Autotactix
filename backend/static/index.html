@@ -170,11 +170,28 @@
     <section id="panel-video" class="hidden grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-6">
       <div class="bg-asphalt-panel border border-asphalt-border rounded-xl p-5 space-y-5 h-fit">
         <div>
-          <p class="text-sm font-medium text-paint mb-2">Source Video</p>
-          <label id="video-dropzone" class="block border border-dashed border-asphalt-border rounded-lg p-6 text-center cursor-pointer hover:border-amber transition-colors">
-            <span id="video-dropzone-label" class="text-sm text-muted">Click to select .mp4, .avi, or .mov</span>
-            <input id="video-input" type="file" accept=".mp4,.avi,.mov" class="hidden" />
-          </label>
+          <p class="text-sm font-medium text-paint mb-2">Source Video Selection</p>
+          
+          <div class="space-y-3">
+            <div>
+              <label class="block text-xs text-muted mb-1">Preset Sample Videos</label>
+              <select id="sample-video-select" class="field w-full rounded-md px-2.5 py-1.5 text-sm">
+                <option value="">-- Select a sample video --</option>
+              </select>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <div class="h-px bg-asphalt-border flex-1"></div>
+              <span class="text-[10px] text-muted font-mono">OR UPLOAD</span>
+              <div class="h-px bg-asphalt-border flex-1"></div>
+            </div>
+
+            <label id="video-dropzone" class="block border border-dashed border-asphalt-border rounded-lg p-4 text-center cursor-pointer hover:border-amber transition-colors">
+              <span id="video-dropzone-label" class="text-xs text-muted">Click or drop .mp4, .avi, or .mov</span>
+              <input id="video-input" type="file" accept=".mp4,.avi,.mov" class="hidden" />
+            </label>
+          </div>
+
           <p id="video-meta" class="text-xs font-mono text-muted mt-2 hidden"></p>
           <p id="video-error" class="text-xs text-signal-red mt-2 hidden"></p>
         </div>
@@ -216,7 +233,7 @@
         </div>
 
         <div id="video-placeholder" class="w-full aspect-video bg-asphalt rounded-lg border border-asphalt-border flex items-center justify-center">
-          <p class="text-sm text-muted">Upload a video to mark zones and run diagnostic analysis.</p>
+          <p class="text-sm text-muted">Select a sample video or upload your own to mark zones.</p>
         </div>
 
         <div id="canvas-wrap" class="hidden w-full rounded-lg border border-asphalt-border overflow-hidden bg-black">
@@ -477,6 +494,7 @@
       });
     
       // --- Module 2 Logic ---
+      const sampleVideoSelect = document.getElementById("sample-video-select");
       const videoInput = document.getElementById("video-input");
       const videoDropzone = document.getElementById("video-dropzone");
       const videoDropzoneLabel = document.getElementById("video-dropzone-label");
@@ -518,6 +536,45 @@
       let currentPoints = [];
       let annotations = { lane_zones: [], intersection_zone: null, crosswalk_zone: null, counting_lines: [] };
       let videoPollTimer = null;
+
+      async function loadSampleVideos() {
+        try {
+          const data = await api("/api/sample-videos");
+          sampleVideoSelect.innerHTML = '<option value="">-- Select a sample video --</option>';
+          (data.videos || []).forEach((filename) => {
+            const opt = document.createElement("option");
+            opt.value = filename;
+            opt.textContent = filename;
+            sampleVideoSelect.appendChild(opt);
+          });
+        } catch (e) {
+          console.warn("Could not load sample videos:", e);
+        }
+      }
+      loadSampleVideos();
+
+      sampleVideoSelect.addEventListener("change", async (e) => {
+        const filename = e.target.value;
+        if (!filename) return;
+
+        videoError.classList.add("hidden");
+        videoMeta.classList.add("hidden");
+        setVideoStatus("loading", "Loading sample video...");
+
+        try {
+          const data = await api("/api/select-sample-video", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ filename }),
+          });
+
+          loadVideoFrame(data, filename);
+        } catch (err) {
+          videoError.textContent = "Failed to load sample video: " + err.message;
+          videoError.classList.remove("hidden");
+          setVideoStatus("error", "Sample load error");
+        }
+      });
     
       function setVideoStatus(status, label) {
         videoStatusDot.className = "status-dot " + (status === 'running' ? 'bg-signal-blue pulse' : (status === 'finished' ? 'bg-signal-green' : (status === 'error' ? 'bg-signal-red' : 'bg-muted')));
@@ -540,8 +597,28 @@
           handleVideoSelect(e.target.files[0]);
         }
       });
+
+      function loadVideoFrame(data, displayName) {
+        currentVideoId = data.video_id;
+        videoMeta.textContent = `File: ${displayName} (${data.video_width}x${data.video_height})`;
+        videoMeta.classList.remove("hidden");
+        videoDropzoneLabel.textContent = "Change video: " + displayName;
+
+        bgImage = new Image();
+        bgImage.onload = () => {
+          laneCanvas.width = data.video_width;
+          laneCanvas.height = data.video_height;
+          videoPlaceholder.classList.add("hidden");
+          canvasWrap.classList.remove("hidden");
+          toolSection.classList.remove("opacity-40", "pointer-events-none");
+          setVideoStatus("ready", "Ready for zone markup");
+          resetAnnotations();
+        };
+        bgImage.src = data.frame_data_url;
+      }
     
       async function handleVideoSelect(file) {
+        sampleVideoSelect.value = "";
         videoError.classList.add("hidden");
         videoMeta.classList.add("hidden");
         setVideoStatus("uploading", "Uploading video...");
@@ -555,27 +632,12 @@
             method: "POST",
             body: formData
           });
-    
-          currentVideoId = data.video_id;
-          videoMeta.textContent = `File: ${file.name} (${data.video_width}x${data.video_height})`;
-          videoMeta.classList.remove("hidden");
-          videoDropzoneLabel.textContent = "Change video: " + file.name;
-    
-          bgImage = new Image();
-          bgImage.onload = () => {
-            laneCanvas.width = data.video_width;
-            laneCanvas.height = data.video_height;
-            videoPlaceholder.classList.add("hidden");
-            canvasWrap.classList.remove("hidden");
-            toolSection.classList.remove("opacity-40", "pointer-events-none");
-            setVideoStatus("ready", "Ready for zone markup");
-            resetAnnotations();
-          };
-          bgImage.src = data.frame_data_url;
+
+          loadVideoFrame(data, file.name);
         } catch (e) {
           videoError.textContent = "Upload failed: " + e.message;
           videoError.classList.remove("hidden");
-          videoDropzoneLabel.textContent = "Click to select .mp4, .avi, or .mov";
+          videoDropzoneLabel.textContent = "Click or drop custom .mp4, .avi, or .mov";
           setVideoStatus("error", "Upload error");
         }
       }

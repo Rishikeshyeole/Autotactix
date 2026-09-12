@@ -7,10 +7,12 @@ AutoTactix — Smart Traffic Management & Simulation System.
 from __future__ import annotations
 
 import logging
+import shutil
 import threading
 import time
 import uuid
 from pathlib import Path
+from typing import Optional
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -28,8 +30,9 @@ BASE_DIR = Path(__file__).resolve().parent
 UPLOADS_DIR = BASE_DIR / "uploads"
 OUTPUTS_DIR = BASE_DIR / "outputs"
 STATIC_DIR = BASE_DIR / "static"
+SAMPLES_DIR = BASE_DIR / "sample_videos"
 
-for d in (UPLOADS_DIR, OUTPUTS_DIR, STATIC_DIR):
+for d in (UPLOADS_DIR, OUTPUTS_DIR, STATIC_DIR, SAMPLES_DIR):
     d.mkdir(parents=True, exist_ok=True)
 
 MAX_VIDEO_BYTES = 500 * 1024 * 1024
@@ -114,15 +117,61 @@ def stop_simulation(job_id: str):
         job.message = "Simulation manually stopped by user."
     return {"job_id": job_id, "status": "stopped"}
 
+
 @app.post("/api/simulate/stop-active")
 @app.post("/simulate/stop-active")
 def stop_active_simulation():
     sumo_utils.runner.stop()
     return {"status": "stopped", "message": "Active simulation stopped."}
 
+
 # ---------------------------------------------------------------------------
 # Module 2: AI video traffic analysis
 # ---------------------------------------------------------------------------
+@app.get("/api/sample-videos")
+@app.get("/sample-videos")
+def list_sample_videos():
+    if not SAMPLES_DIR.exists():
+        return {"videos": []}
+    videos = [
+        f.name for f in SAMPLES_DIR.glob("*")
+        if f.suffix.lower() in ALLOWED_VIDEO_SUFFIXES
+    ]
+    return {"videos": sorted(videos)}
+
+
+class SelectSampleRequest(BaseModel):
+    filename: str
+
+
+@app.post("/api/select-sample-video")
+@app.post("/select-sample-video")
+def select_sample_video(req: SelectSampleRequest):
+    sample_path = SAMPLES_DIR / Path(req.filename).name
+    if not sample_path.exists() or sample_path.suffix.lower() not in ALLOWED_VIDEO_SUFFIXES:
+        raise HTTPException(404, f"Sample video '{req.filename}' not found.")
+
+    video_id = uuid.uuid4().hex[:12]
+    dest = UPLOADS_DIR / f"{video_id}{sample_path.suffix.lower()}"
+    shutil.copyfile(sample_path, dest)
+
+    try:
+        frame, width, height = vproc.extract_first_frame(dest)
+    except vproc.VideoProcessingError as exc:
+        dest.unlink(missing_ok=True)
+        raise HTTPException(400, str(exc)) from exc
+
+    data_url = vproc.frame_to_data_url(frame)
+    _video_sources[video_id] = dest
+
+    return {
+        "video_id": video_id,
+        "frame_data_url": data_url,
+        "video_width": width,
+        "video_height": height,
+    }
+
+
 @app.post("/api/extract-first-frame")
 @app.post("/extract-first-frame")
 async def extract_first_frame(file: UploadFile = File(...)):

@@ -19,6 +19,7 @@ services:
       - ./uploads:/app/uploads
       - ./outputs:/app/outputs
       - ./static:/app/static
+      - ./sample_videos:/app/sample_videos
     shm_size: "1gb"
     restart: unless-stopped
     healthcheck:
