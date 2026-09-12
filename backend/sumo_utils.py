@@ -12,6 +12,7 @@ Automated pipeline for AutoTactix:
 import logging
 import math
 import os
+import socket
 import subprocess
 import sys
 import threading
@@ -44,8 +45,28 @@ class SimulationJob:
     novnc_url: Optional[str] = None
 
 
+def get_free_port() -> int:
+    """Finds an available TCP port on localhost for TraCI communication."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
 def force_cleanup_traci():
-    """Forcefully closes lingering TraCI connections and terminates zombie SUMO processes."""
+    """Forcefully terminates all SUMO GUI instances and clears lingering TraCI sockets/labels."""
+    try:
+        main_mod = getattr(traci, "main", None)
+        if main_mod and hasattr(main_mod, "_connections"):
+            for label in list(main_mod._connections.keys()):
+                try:
+                    traci.switch(label)
+                    traci.close()
+                except Exception:
+                    pass
+            main_mod._connections.clear()
+    except Exception as exc:
+        logger.warning("Error clearing TraCI main connection registry: %s", exc)
+
     try:
         if hasattr(traci, "_connections"):
             for label in list(traci._connections.keys()):
@@ -55,8 +76,8 @@ def force_cleanup_traci():
                 except Exception:
                     pass
             traci._connections.clear()
-    except Exception as exc:
-        logger.warning("Error clearing TraCI connection registry: %s", exc)
+    except Exception:
+        pass
 
     try:
         if traci.isLoaded():
@@ -66,7 +87,8 @@ def force_cleanup_traci():
 
     try:
         subprocess.run(["pkill", "-9", "-f", "sumo"], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
-        time.sleep(0.5)
+        subprocess.run(["pkill", "-9", "-f", "sumo-gui"], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+        time.sleep(0.3)
     except (FileNotFoundError, Exception):
         pass
 
@@ -81,10 +103,10 @@ def bbox_from_point(lat: float, lon: float, radius_m: float) -> Tuple[float, flo
 
 
 def download_osm_data(bbox: Tuple[float, float, float, float], output_osm_path: Path) -> Path:
-    """Downloads OSM road network data from robust Overpass API mirrors with short timeouts."""
+    """Downloads OSM road network data with fast timeouts across multiple Overpass mirrors."""
     south, west, north, east = bbox
     query = (
-        "[out:xml][timeout:25];\n"
+        "[out:xml][timeout:15];\n"
         "(\n"
         f'  way["highway"]({south},{west},{north},{east});\n'
         ");\n"
@@ -96,8 +118,8 @@ def download_osm_data(bbox: Tuple[float, float, float, float], output_osm_path: 
         "Content-Type": "application/x-www-form-urlencoded",
     }
     mirrors = [
-        "https://overpass.kumi.systems/api/interpreter",
         "https://overpass-api.de/api/interpreter",
+        "https://overpass.kumi.systems/api/interpreter",
         "https://overpass.private.coffee/api/interpreter",
         "https://overpass.nchc.org.tw/api/interpreter",
         "https://lz4.overpass-api.de/api/interpreter",
@@ -106,7 +128,7 @@ def download_osm_data(bbox: Tuple[float, float, float, float], output_osm_path: 
     for url in mirrors:
         try:
             logger.info("Downloading OSM data from Overpass mirror: %s", url)
-            resp = requests.post(url, data={"data": query}, headers=headers, timeout=18)
+            resp = requests.post(url, data={"data": query}, headers=headers, timeout=(3.0, 6.0))
             resp.raise_for_status()
             if b"<osm" not in resp.content.lower():
                 raise ValueError("Response does not contain valid XML OSM data.")
@@ -172,14 +194,12 @@ def generate_heavy_random_traffic(net_file: Path, routes_file: Path, period: flo
 class SimulationRunner:
     def __init__(self):
         self._lock = threading.Lock()
-        self._running = False
-        self._stop_requested = False
+        self.active_job_id: Optional[str] = None
         self.current_job: Optional[SimulationJob] = None
-        self._thread: Optional[threading.Thread] = None
 
     def is_busy(self) -> bool:
         with self._lock:
-            return self._running
+            return self.active_job_id is not None
 
     def list_networks(self) -> List[str]:
         """Lists user network files in the networks directory."""
@@ -192,20 +212,16 @@ class SimulationRunner:
         ]
 
     def stop(self):
+        """Stops active simulation and cleans up processes."""
         logger.info("Stopping simulation runner...")
-        self._stop_requested = True
+        with self._lock:
+            if self.current_job:
+                self.current_job.status = "stopped"
+                self.current_job.message = "Simulation stopped by user."
+            self.active_job_id = None
         force_cleanup_traci()
 
-        if self._thread and self._thread.is_alive() and threading.current_thread() != self._thread:
-            self._thread.join(timeout=3.0)
-
-        with self._lock:
-            self._running = False
-            if self.current_job and self.current_job.status in ("pending", "preparing", "running"):
-                self.current_job.status = "stopped"
-                self.current_job.message = "Simulation manually stopped by user."
-
-    def start_in_background(
+    def start_new_job(
         self,
         job: SimulationJob,
         center_lat: float,
@@ -216,8 +232,16 @@ class SimulationRunner:
         step_delay: int,
         custom_net_file: Optional[str] = None,
     ):
-        self._thread = threading.Thread(
-            target=self.start,
+        """Cancels any prior running job and starts a new simulation thread isolated by job_id."""
+        with self._lock:
+            self.active_job_id = job.job_id
+            self.current_job = job
+
+        # Clean up old TraCI / SUMO instances before starting new thread
+        force_cleanup_traci()
+
+        thread = threading.Thread(
+            target=self._run_job_thread,
             args=(
                 job,
                 center_lat,
@@ -230,9 +254,13 @@ class SimulationRunner:
             ),
             daemon=True,
         )
-        self._thread.start()
+        thread.start()
 
-    def start(
+    def _is_job_active(self, job_id: str) -> bool:
+        with self._lock:
+            return self.active_job_id == job_id
+
+    def _run_job_thread(
         self,
         job: SimulationJob,
         center_lat: float,
@@ -243,25 +271,19 @@ class SimulationRunner:
         step_delay: int,
         custom_net_file: Optional[str] = None,
     ):
-        with self._lock:
-            if self._running:
-                job.status = "error"
-                job.message = "Runner is already busy with another job."
-                return
-            self._running = True
-            self._stop_requested = False
-            self.current_job = job
-
+        job_id = job.job_id
         job.status = "preparing"
         job.novnc_url = None
         os.environ["DISPLAY"] = ":99"
-        force_cleanup_traci()
 
-        osm_file = Path(f"/tmp/auto_map_{job.job_id}.osm.xml")
-        active_net_file = Path(f"/tmp/auto_net_{job.job_id}.net.xml")
-        routes_file = Path(f"/tmp/auto_routes_{job.job_id}.rou.xml")
+        osm_file = Path(f"/tmp/auto_map_{job_id}.osm.xml")
+        active_net_file = Path(f"/tmp/auto_net_{job_id}.net.xml")
+        routes_file = Path(f"/tmp/auto_routes_{job_id}.rou.xml")
 
         try:
+            if not self._is_job_active(job_id):
+                return
+
             # 1. Download OSM or Use Custom Network File
             if custom_net_file and (NETWORKS_DIR / custom_net_file).exists():
                 job.message = f"Loading network {custom_net_file}..."
@@ -271,13 +293,13 @@ class SimulationRunner:
                 bbox = bbox_from_point(center_lat, center_lon, radius)
                 download_osm_data(bbox, osm_file)
 
-                if self._stop_requested:
+                if not self._is_job_active(job_id):
                     return
 
                 job.message = "Compiling geo-referenced SUMO network with netconvert..."
                 generate_sumo_net(osm_file, active_net_file)
 
-            if self._stop_requested:
+            if not self._is_job_active(job_id):
                 return
 
             # 2. Parse Network
@@ -295,7 +317,7 @@ class SimulationRunner:
                 seed=int(time.time()) % 1000,
             )
 
-            if self._stop_requested:
+            if not self._is_job_active(job_id):
                 return
 
             # 4. Compute Viewport Coordinates
@@ -306,8 +328,11 @@ class SimulationRunner:
                 xmin, ymin, xmax, ymax = net.getBoundary()
                 cx, cy = (xmin + xmax) / 2.0, (ymin + ymax) / 2.0
 
-            # 5. Launch SUMO GUI
-            job.message = "Launching SUMO GUI and establishing connection..."
+            # 5. Get Free Port & Launch SUMO GUI
+            traci_port = get_free_port()
+            conn_label = f"job_{job_id}"
+            job.message = f"Launching SUMO GUI via TraCI on port {traci_port}..."
+
             sumo_cmd = [
                 "sumo-gui",
                 "-n", str(active_net_file),
@@ -318,8 +343,11 @@ class SimulationRunner:
                 "--delay", str(step_delay),
             ]
 
-            logger.info("Launching SUMO GUI via TraCI...")
-            traci.start(sumo_cmd)
+            if not self._is_job_active(job_id):
+                return
+
+            logger.info("Launching SUMO GUI on port %d with label '%s'...", traci_port, conn_label)
+            traci.start(sumo_cmd, port=traci_port, label=conn_label)
 
             # 6. Initialize View Settings
             traci.simulationStep()
@@ -332,7 +360,7 @@ class SimulationRunner:
             except traci.TraCIException as gui_err:
                 logger.warning("TraCI GUI setup failed: %s", gui_err)
 
-            # Mark simulation active and assign noVNC endpoint after sumo-gui is running
+            # Mark simulation active
             job.status = "running"
             job.novnc_url = "/vnc.html?resize=scale&autoconnect=true&path=websockify"
             job.message = "Simulation active with automated heavy traffic."
@@ -341,7 +369,7 @@ class SimulationRunner:
             step = 1
             max_steps = 10000
 
-            while not self._stop_requested and step < max_steps:
+            while self._is_job_active(job_id) and step < max_steps:
                 try:
                     traci.simulationStep()
                     step += 1
@@ -350,34 +378,34 @@ class SimulationRunner:
                     if traci.simulation.getMinExpectedNumber() <= 0 and step > 100:
                         break
                 except (traci.TraCIException, OSError, Exception):
-                    if self._stop_requested:
+                    if not self._is_job_active(job_id):
                         break
                     raise
 
-            if not self._stop_requested:
+            if self._is_job_active(job_id):
                 job.status = "finished"
                 job.message = "Simulation completed successfully."
-                time.sleep(3)
-            else:
-                job.status = "stopped"
-                job.message = "Simulation manually stopped by user."
 
         except Exception as exc:
-            if self._stop_requested:
-                job.status = "stopped"
-                job.message = "Simulation manually stopped by user."
-            else:
+            if self._is_job_active(job_id):
                 logger.exception("Automated simulation workflow failed")
                 job.status = "error"
                 job.message = f"Error: {str(exc)}"
 
         finally:
-            force_cleanup_traci()
-            for tmp_p in (osm_file, Path(f"/tmp/auto_net_{job.job_id}.net.xml"), routes_file, routes_file.with_suffix(".trips.xml")):
+            # CRITICAL: Only clean up if this job is STILL the active job!
+            # If a newer job started, DO NOT kill its process or delete its state!
+            with self._lock:
+                is_still_current = (self.active_job_id == job_id)
+                if is_still_current:
+                    self.active_job_id = None
+
+            if is_still_current:
+                force_cleanup_traci()
+
+            for tmp_p in (osm_file, Path(f"/tmp/auto_net_{job_id}.net.xml"), routes_file, routes_file.with_suffix(".trips.xml")):
                 if tmp_p.exists():
                     tmp_p.unlink(missing_ok=True)
-            with self._lock:
-                self._running = False
 
 
 runner = SimulationRunner()

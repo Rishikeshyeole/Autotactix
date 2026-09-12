@@ -28,13 +28,12 @@ from typing import Optional
 import cv2
 import numpy as np
 import pandas as pd
+import requests
 import supervision as sv
 from shapely.geometry import Point, Polygon
-from tabulate import tabulate
 
 logger = logging.getLogger("autotactix.video")
 
-# Thresholds from comprehensive_traffic_analyzer.py
 WEAVE_LANE_CHANGE_THRESH = 3
 STOPPED_TIME_THRESH_SEC = 5.0
 SWERVE_PIXEL_THRESH = 45.0
@@ -138,13 +137,13 @@ def convert_to_web_h264(input_path: Path, output_path: Path) -> None:
     cmd = [
         ffmpeg_bin, "-y",
         "-i", str(input_path),
-        "-an",  # Strip non-existent audio stream to prevent sync headers error
-        "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",  # Force even dimensions required for H.264 yuv420p
+        "-an",
+        "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
         "-c:v", "libx264",
         "-pix_fmt", "yuv420p",
         "-preset", "fast",
         "-crf", "23",
-        "-movflags", "+faststart",  # Place MOOV atom at beginning for immediate HTML5 web streaming
+        "-movflags", "+faststart",
         str(output_path)
     ]
     logger.info("Executing FFmpeg conversion to web-compatible H.264 format...")
@@ -218,17 +217,17 @@ def generate_traffic_solutions(detected_issues_summary: dict) -> list[dict]:
 def generate_ai_traffic_report(
     detected_issues_summary: dict, total_vehicles: int, video_duration_sec: float
 ) -> str:
-    # 1. HARDCODE YOUR API KEY HERE OR PASS IT VIA ENVIRONMENT VARIABLE
-    api_key = os.getenv("GCP_API_KEY").strip()
-    
-    # If API key is empty, set your key string directly below:
-    if not api_key:
-        api_key = "AQ.Ab8RN6ISTVeserkHD4Mk-DDCMGXS9XsqTOgsk3wwpzkQlnW0Vg"
+    api_key = (
+        os.getenv("GEMINI_API_KEY")
+        or os.getenv("GCP_API_KEY")
+        or os.getenv("GOOGLE_API_KEY")
+        or ""
+    ).strip().strip('"').strip("'")
 
     current_date_str = datetime.now().strftime("%B %d, %Y")
     duration_hours = round(video_duration_sec / 3600.0, 4) if video_duration_sec > 0 else 0.001
 
-    payload = {
+    payload_data = {
         "report_date": current_date_str,
         "surveillance_metadata": {
             "total_vehicles_monitored": total_vehicles,
@@ -238,86 +237,67 @@ def generate_ai_traffic_report(
         "detected_anomalies_breakdown": detected_issues_summary
     }
 
-    if not api_key or api_key == "YOUR_GEMINI_API_KEY_HERE":
-        logger.error("GEMINI_API_KEY is missing.")
-        return (
-            f"# AutoTactix Engineering Diagnostic Summary ({current_date_str})\n\n"
-            f"**Monitored Vehicles:** {total_vehicles} | **Duration:** {video_duration_sec:.1f}s\n\n"
-            f"### Detected Anomaly Breakdown\n" +
-            "\n".join([f"- **{k}:** {v} instances" for k, v in detected_issues_summary.items()]) +
-            "\n\n---\n⚠️ **Error: Invalid or Missing `GEMINI_API_KEY`.**\n"
-            "Please paste your key into `video_processor.py` on line 135 or set the `GEMINI_API_KEY` environment variable."
-        )
+    system_instruction = (
+        "You are an expert Senior Traffic Engineer, Road Safety Auditor, and Urban Infrastructure Planning Consultant. "
+        "Your objective is to produce a rigorous, highly technical, and professional Traffic Safety & Anomaly Diagnostics Report in Markdown.\n"
+        "Adhere strictly to civil engineering terminology, calculate exact incident rates, provide risk prioritization matrices, "
+        "and detail actionable temporary, short-term, medium-term, and permanent mitigation packages."
+    )
 
-    try:
-        from google import genai
-        from google.genai import types
+    user_prompt = f"""
+    Analyze the following real-time computer vision traffic detection dataset:
 
-        client = genai.Client(api_key=api_key)
-        system_instruction = (
-            "You are an expert Senior Traffic Engineer, Road Safety Auditor, and Urban Infrastructure Planning Consultant. "
-            "Your objective is to produce a rigorous, highly technical, and professional Traffic Safety & Anomaly Diagnostics Report in Markdown.\n"
-            "Adhere strictly to civil engineering terminology, calculate exact incident rates, provide risk prioritization matrices, "
-            "and detail actionable temporary, short-term, medium-term, and permanent mitigation packages."
-        )
+    ```json
+    {json.dumps(payload_data, indent=2)}
+    ```
 
-        user_prompt = f"""
-        Analyze the following real-time computer vision traffic detection dataset:
+    Generate a comprehensive engineering report in Markdown following this structure:
+    1. HEADER & EXECUTIVE SUMMARY (Incident Rate per 1,000 Vehicles, Hourly Volume).
+    2. RISK PRIORITIZATION & SEVERITY INDEX MATRIX (Life-Safety, Pavement, Flow Disruption).
+    3. IMMEDIATE TEMPORARY SOLUTIONS (1–7 Days).
+    4. SHORT-TO-MEDIUM TERM REMEDIES (1–6 Months).
+    5. PERMANENT INFRASTRUCTURE SOLUTIONS (1–3 Years).
+    6. COMPARATIVE FEASIBILITY & BENEFIT-COST MATRIX (Markdown Table with Tier, Intervention, Cost, Impact, BCR).
+    7. STANDARDS COMPLIANCE & REGULATORY REFERENCES (MUTCD, IRC, AASHTO).
+    8. ACTIONABLE FIELD WORK-ORDER ROADMAP.
+    """
 
-        ```json
-        {json.dumps(payload, indent=2)}
-        ```
+    candidate_models = ["gemini-3.6-flash","gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]
 
-        Generate a comprehensive engineering report in Markdown following this structure:
-        1. HEADER & EXECUTIVE SUMMARY (Incident Rate per 1,000 Vehicles, Hourly Volume).
-        2. RISK PRIORITIZATION & SEVERITY INDEX MATRIX (Life-Safety, Pavement, Flow Disruption).
-        3. IMMEDIATE TEMPORARY SOLUTIONS (1–7 Days).
-        4. SHORT-TO-MEDIUM TERM REMEDIES (1–6 Months).
-        5. PERMANENT INFRASTRUCTURE SOLUTIONS (1–3 Years).
-        6. COMPARATIVE FEASIBILITY & BENEFIT-COST MATRIX (Markdown Table with Tier, Intervention, Cost, Impact, BCR).
-        7. STANDARDS COMPLIANCE & REGULATORY REFERENCES (MUTCD, IRC, AASHTO).
-        8. ACTIONABLE FIELD WORK-ORDER ROADMAP.
-        """
+    # Direct REST API call matching curl behavior
+    for model_name in candidate_models:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+        body = {
+            "contents": [
+                {
+                    "parts": [
+                        {"text": f"{system_instruction}\n\n{user_prompt}"}
+                    ]
+                }
+            ]
+        }
+        try:
+            logger.info("Executing REST call to Gemini model: %s", model_name)
+            resp = requests.post(url, json=body, headers={"Content-Type": "application/json"}, timeout=45)
+            if resp.status_code == 200:
+                resp_json = resp.json()
+                candidates = resp_json.get("candidates", [])
+                if candidates and "content" in candidates[0]:
+                    parts = candidates[0]["content"].get("parts", [])
+                    if parts and "text" in parts[0]:
+                        logger.info("Successfully generated Gemini report via REST API (%s)", model_name)
+                        return parts[0]["text"]
+            else:
+                logger.warning("REST API call to %s returned code %d: %s", model_name, resp.status_code, resp.text)
+        except Exception as e:
+            logger.warning("REST call to %s failed: %s", model_name, e)
 
-        config = types.GenerateContentConfig(
-            system_instruction=system_instruction,
-            temperature=0.15,
-            top_p=0.9,
-            max_output_tokens=4096
-        )
-
-        # Verified active Gemini models
-        candidate_models = ["gemini-3.6-flash","gemini-3.5-flash", "gemini-3.5-flash-lite"] 
-        last_err = None
-
-        for model_name in candidate_models:
-            try:
-                logger.info("Attempting Gemini report generation with model: %s", model_name)
-                resp = client.models.generate_content(model=model_name, contents=user_prompt, config=config)
-                if resp and resp.text:
-                    logger.info("Successfully generated Gemini report with %s", model_name)
-                    return resp.text
-            except Exception as e:
-                logger.warning("Gemini model %s failed: %s", model_name, e)
-                last_err = e
-
-        return (
-            f"# AutoTactix Engineering Diagnostic Summary ({current_date_str})\n\n"
-            f"**Monitored Vehicles:** {total_vehicles} | **Duration:** {video_duration_sec:.1f}s\n\n"
-            f"### Detected Anomaly Breakdown\n" +
-            "\n".join([f"- **{k}:** {v} instances" for k, v in detected_issues_summary.items()]) +
-            f"\n\n---\n⚠️ **Gemini API Model Error:** All candidate models failed. Last error: `{last_err}`"
-        )
-
-    except Exception as exc:
-        logger.exception("Gemini API initialization or call failed")
-        return (
-            f"# AutoTactix Engineering Diagnostic Summary ({current_date_str})\n\n"
-            f"**Monitored Vehicles:** {total_vehicles} | **Duration:** {video_duration_sec:.1f}s\n\n"
-            f"### Detected Anomaly Breakdown\n" +
-            "\n".join([f"- **{k}:** {v} instances" for k, v in detected_issues_summary.items()]) +
-            f"\n\n---\n⚠️ **Gemini API Error:** `{str(exc)}`"
-        )
+    return (
+        f"# AutoTactix Engineering Diagnostic Summary ({current_date_str})\n\n"
+        f"**Monitored Vehicles:** {total_vehicles} | **Duration:** {video_duration_sec:.1f}s\n\n"
+        f"### Detected Anomaly Breakdown\n" +
+        "\n".join([f"- **{k}:** {v} instances" for k, v in detected_issues_summary.items()])
+    )
 
 
 def process_video(
@@ -345,7 +325,6 @@ def process_video(
         video_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
 
-        # Build Shapely Polygons
         lane_polygons = {}
         for i, poly in enumerate(lane_zones_raw):
             if len(poly) >= 3:
@@ -403,7 +382,6 @@ def process_video(
             detections = detections[np.isin(detections.class_id, list(CLASS_NAMES.keys()))]
             detections = tracker.update_with_detections(detections)
 
-            # Draw ROI Polygons
             for lane_name, polygon in lane_polygons.items():
                 pts = np.array(polygon.exterior.coords, np.int32).reshape((-1, 1, 2))
                 cv2.polylines(frame, [pts], isClosed=True, color=(255, 191, 0), thickness=2)
@@ -539,7 +517,6 @@ def process_video(
                         hud_label += f" | ⚠️ {active_issues[0]}"
                     cv2.putText(frame, hud_label, (x1, y1 - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.45, box_color, 2)
 
-            # HUD Overlay
             cv2.rectangle(frame, (10, 10), (450, 140), (0, 0, 0), -1)
             cv2.putText(frame, f"Active Vehicles Monitored: {len(detections)}", (20, 35),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
@@ -560,7 +537,6 @@ def process_video(
         cap.release()
         writer.release()
 
-        # Re-encode raw output to web-compatible H.264
         convert_to_web_h264(raw_output_path, output_path)
 
         total_duration_sec = frame_idx / fps if fps > 0 else 0.0

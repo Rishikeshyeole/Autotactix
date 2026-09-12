@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import shutil
 import threading
+import time
 import uuid
 from pathlib import Path
 from typing import Optional
@@ -42,7 +43,7 @@ app = FastAPI(title="AutoTactix", description="Smart Traffic Management & Simula
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Allows all origins (Vercel, Localhost, etc.)
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -89,16 +90,6 @@ async def upload_network(file: UploadFile = File(...)):
 @app.post("/api/simulate")
 @app.post("/simulate")
 def start_simulation(req: SimulateRequest):
-    if sumo_utils.runner.is_busy():
-        logger.info("Runner is busy. Synchronously stopping existing run...")
-        try:
-            sumo_utils.runner.stop()
-        except Exception as exc:
-            logger.warning("Graceful stop failed: %s", exc)
-
-    if sumo_utils.runner.is_busy():
-        raise HTTPException(409, "A previous simulation is still shutting down. Please wait 2 seconds and try again.")
-
     job_id = uuid.uuid4().hex[:12]
     job = sumo_utils.SimulationJob(
         job_id=job_id,
@@ -107,7 +98,7 @@ def start_simulation(req: SimulateRequest):
     )
     _sim_jobs[job_id] = job
 
-    sumo_utils.runner.start_in_background(
+    sumo_utils.runner.start_new_job(
         job,
         req.center_lat,
         req.center_lon,

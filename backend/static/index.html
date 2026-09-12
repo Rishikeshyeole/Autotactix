@@ -86,11 +86,11 @@
           <div class="space-y-2">
             <label class="block">
               <span class="text-xs text-muted">Latitude</span>
-              <input id="center-lat" type="number" step="0.000001" value="20.000000" class="field w-full mt-1 rounded-md px-2.5 py-1.5 text-sm font-mono" />
+              <input id="center-lat" type="number" step="0.000001" value="20.068466" class="field w-full mt-1 rounded-md px-2.5 py-1.5 text-sm font-mono" />
             </label>
             <label class="block">
               <span class="text-xs text-muted">Longitude</span>
-              <input id="center-lon" type="number" step="0.000001" value="73.790000" class="field w-full mt-1 rounded-md px-2.5 py-1.5 text-sm font-mono" />
+              <input id="center-lon" type="number" step="0.000001" value="73.790560" class="field w-full mt-1 rounded-md px-2.5 py-1.5 text-sm font-mono" />
             </label>
             <label class="block">
               <span class="text-xs text-muted">Radius (Meters)</span>
@@ -178,7 +178,7 @@
             <button id="tool-crosswalk" class="text-xs font-medium rounded-md py-1.5 text-muted">Crosswalk Zone</button>
             <button id="tool-line" class="text-xs font-medium rounded-md py-1.5 text-muted">Counting Line</button>
           </div>
-          <p id="tool-hint" class="text-xs text-muted leading-relaxed">Click 4 points to define a lane polygon zone.</p>
+          <p id="tool-hint" class="text-xs text-muted leading-relaxed">Click 3+ points to define a lane polygon zone. Click 'Finish Zone' when done.</p>
 
           <div class="flex gap-2 pt-2">
             <button id="finish-zone-btn" disabled class="flex-1 text-xs font-medium border border-asphalt-border rounded-md py-1.5 disabled:opacity-40">Finish Zone</button>
@@ -298,6 +298,12 @@
   let simPollTimer = null;
   let simIframeLoaded = false;
 
+  window.addEventListener("beforeunload", () => {
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon("/api/simulate/stop-active");
+    }
+  });
+
   async function loadNetworks() {
     try {
       const data = await api("/api/networks");
@@ -315,7 +321,7 @@
   function setSimStatus(status, message) {
     const isRunning = status === 'running';
     const isPrep = status === 'preparing' || status === 'starting' || status === 'pending';
-    simStatusDot.className = "status-dot " + (isRunning ? 'bg-signal-green pulse' : (isPrep ? 'bg-signal-blue pulse' : 'bg-muted'));
+    simStatusDot.className = "status-dot " + (isRunning ? 'bg-signal-green pulse' : (isPrep ? 'bg-signal-blue pulse' : (status === 'error' ? 'bg-signal-red' : 'bg-muted')));
     simStatusLabel.textContent = status;
     if (message) {
       simErrorEl.textContent = status === "error" ? message : "";
@@ -353,14 +359,24 @@
         if (simPollTimer) clearInterval(simPollTimer);
         stopSimBtn.classList.add("hidden");
         runSimBtn.disabled = false;
+        if (data.status === "error" || data.status === "stopped") {
+          simIframe.classList.add("hidden");
+          simPlaceholder.classList.remove("hidden");
+          simPlaceholderText.textContent = "Click Auto-Generate & Run to start the simulation.";
+        }
       }
     } catch (e) {
       if (simPollTimer) clearInterval(simPollTimer);
       runSimBtn.disabled = false;
+      setSimStatus("error", e.message);
+      simIframe.classList.add("hidden");
+      simPlaceholder.classList.remove("hidden");
+      simPlaceholderText.textContent = "Click Auto-Generate & Run to start the simulation.";
     }
   }
 
   runSimBtn.addEventListener("click", async () => {
+    if (simPollTimer) clearInterval(simPollTimer);
     simErrorEl.classList.add("hidden");
     runSimBtn.disabled = true;
     simIframeLoaded = false;
@@ -379,29 +395,404 @@
     };
 
     try {
-      setSimStatus("starting", "");
       const data = await api("/api/simulate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+      setSimStatus("starting", "Initializing pipeline...");
       simPollTimer = setInterval(() => pollSimStatus(data.job_id), 1200);
       stopSimBtn.dataset.jobId = data.job_id;
     } catch (e) {
       setSimStatus("error", e.message);
       runSimBtn.disabled = false;
+      simPlaceholderText.textContent = "Click Auto-Generate & Run to start the simulation.";
     }
   });
 
   stopSimBtn.addEventListener("click", async () => {
     const jobId = stopSimBtn.dataset.jobId;
-    if (!jobId) return;
-    await api("/api/simulate/" + jobId + "/stop", { method: "POST" });
+    if (jobId) {
+      await api("/api/simulate/" + jobId + "/stop", { method: "POST" });
+    } else {
+      await api("/api/simulate/stop-active", { method: "POST" });
+    }
     if (simPollTimer) clearInterval(simPollTimer);
     setSimStatus("finished", "Simulation stopped.");
     stopSimBtn.classList.add("hidden");
     runSimBtn.disabled = false;
+    simIframe.classList.add("hidden");
+    simPlaceholder.classList.remove("hidden");
+    simPlaceholderText.textContent = "Click Auto-Generate & Run to start the simulation.";
   });
+
+  // --- Module 2 Logic ---
+  const videoInput = document.getElementById("video-input");
+  const videoDropzone = document.getElementById("video-dropzone");
+  const videoDropzoneLabel = document.getElementById("video-dropzone-label");
+  const videoMeta = document.getElementById("video-meta");
+  const videoError = document.getElementById("video-error");
+
+  const toolSection = document.getElementById("tool-section");
+  const toolLane = document.getElementById("tool-lane");
+  const toolIntersection = document.getElementById("tool-intersection");
+  const toolCrosswalk = document.getElementById("tool-crosswalk");
+  const toolLine = document.getElementById("tool-line");
+  const toolHint = document.getElementById("tool-hint");
+  const finishZoneBtn = document.getElementById("finish-zone-btn");
+  const clearMarksBtn = document.getElementById("clear-marks-btn");
+  const shapeList = document.getElementById("shape-list");
+
+  const processVideoBtn = document.getElementById("process-video-btn");
+  const videoStatusDot = document.getElementById("video-status-dot");
+  const videoStatusLabel = document.getElementById("video-status-label");
+  const videoPlaceholder = document.getElementById("video-placeholder");
+  const canvasWrap = document.getElementById("canvas-wrap");
+  const laneCanvas = document.getElementById("lane-canvas");
+  const ctx = laneCanvas.getContext("2d");
+
+  const progressWrap = document.getElementById("progress-wrap");
+  const progressPct = document.getElementById("progress-pct");
+  const progressBar = document.getElementById("progress-bar");
+
+  const resultsWrap = document.getElementById("results-wrap");
+  const outputVideo = document.getElementById("output-video");
+  const classTotalsGrid = document.getElementById("class-totals-grid");
+  const anomaliesList = document.getElementById("anomalies-list");
+  const solutionsTbody = document.getElementById("solutions-tbody");
+  const aiReportContent = document.getElementById("ai-report-content");
+
+  let currentVideoId = null;
+  let bgImage = null;
+  let activeTool = "lane";
+  let currentPoints = [];
+  let annotations = { lane_zones: [], intersection_zone: null, crosswalk_zone: null, counting_lines: [] };
+  let videoPollTimer = null;
+
+  function setVideoStatus(status, label) {
+    videoStatusDot.className = "status-dot " + (status === 'running' ? 'bg-signal-blue pulse' : (status === 'finished' ? 'bg-signal-green' : (status === 'error' ? 'bg-signal-red' : 'bg-muted')));
+    videoStatusLabel.textContent = label || status;
+  }
+
+  videoDropzone.addEventListener("click", () => videoInput.click());
+  videoDropzone.addEventListener("dragover", (e) => { e.preventDefault(); videoDropzone.classList.add("border-amber"); });
+  videoDropzone.addEventListener("dragleave", () => videoDropzone.classList.remove("border-amber"));
+  videoDropzone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    videoDropzone.classList.remove("border-amber");
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      handleVideoSelect(e.dataTransfer.files[0]);
+    }
+  });
+
+  videoInput.addEventListener("change", (e) => {
+    if (e.target.files && e.target.files[0]) {
+      handleVideoSelect(e.target.files[0]);
+    }
+  });
+
+  async function handleVideoSelect(file) {
+    videoError.classList.add("hidden");
+    videoMeta.classList.add("hidden");
+    setVideoStatus("uploading", "Uploading video...");
+    videoDropzoneLabel.textContent = "Uploading " + file.name + "...";
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const data = await api("/api/extract-first-frame", {
+        method: "POST",
+        body: formData
+      });
+
+      currentVideoId = data.video_id;
+      videoMeta.textContent = `File: ${file.name} (${data.video_width}x${data.video_height})`;
+      videoMeta.classList.remove("hidden");
+      videoDropzoneLabel.textContent = "Change video: " + file.name;
+
+      bgImage = new Image();
+      bgImage.onload = () => {
+        laneCanvas.width = data.video_width;
+        laneCanvas.height = data.video_height;
+        videoPlaceholder.classList.add("hidden");
+        canvasWrap.classList.remove("hidden");
+        toolSection.classList.remove("opacity-40", "pointer-events-none");
+        setVideoStatus("ready", "Ready for zone markup");
+        resetAnnotations();
+      };
+      bgImage.src = data.frame_data_url;
+    } catch (e) {
+      videoError.textContent = "Upload failed: " + e.message;
+      videoError.classList.remove("hidden");
+      videoDropzoneLabel.textContent = "Click to select .mp4, .avi, or .mov";
+      setVideoStatus("error", "Upload error");
+    }
+  }
+
+  function selectTool(tool) {
+    activeTool = tool;
+    currentPoints = [];
+    finishZoneBtn.disabled = true;
+
+    [toolLane, toolIntersection, toolCrosswalk, toolLine].forEach(btn => {
+      btn.className = "text-xs font-medium rounded-md py-1.5 text-muted hover:text-paint";
+    });
+
+    if (tool === "lane") {
+      toolLane.className = "text-xs font-medium rounded-md py-1.5 bg-amber text-asphalt";
+      toolHint.textContent = "Click 3+ points to define a lane polygon zone. Click 'Finish Zone' when done.";
+    } else if (tool === "intersection") {
+      toolIntersection.className = "text-xs font-medium rounded-md py-1.5 bg-amber text-asphalt";
+      toolHint.textContent = "Click 3+ points to define the intersection box. Click 'Finish Zone' when done.";
+    } else if (tool === "crosswalk") {
+      toolCrosswalk.className = "text-xs font-medium rounded-md py-1.5 bg-amber text-asphalt";
+      toolHint.textContent = "Click 3+ points to define the crosswalk zone. Click 'Finish Zone' when done.";
+    } else if (tool === "line") {
+      toolLine.className = "text-xs font-medium rounded-md py-1.5 bg-amber text-asphalt";
+      toolHint.textContent = "Click 2 points to define a vehicle counting line.";
+    }
+    redrawCanvas();
+  }
+
+  toolLane.addEventListener("click", () => selectTool("lane"));
+  toolIntersection.addEventListener("click", () => selectTool("intersection"));
+  toolCrosswalk.addEventListener("click", () => selectTool("crosswalk"));
+  toolLine.addEventListener("click", () => selectTool("line"));
+
+  laneCanvas.addEventListener("click", (e) => {
+    if (!bgImage) return;
+    const rect = laneCanvas.getBoundingClientRect();
+    const scaleX = laneCanvas.width / rect.width;
+    const scaleY = laneCanvas.height / rect.height;
+    const x = Math.round((e.clientX - rect.left) * scaleX);
+    const y = Math.round((e.clientY - rect.top) * scaleY);
+
+    currentPoints.push([x, y]);
+
+    if (activeTool === "line" && currentPoints.length === 2) {
+      annotations.counting_lines.push([...currentPoints]);
+      currentPoints = [];
+      updateUI();
+    } else if (activeTool !== "line" && currentPoints.length >= 3) {
+      finishZoneBtn.disabled = false;
+    }
+    redrawCanvas();
+  });
+
+  finishZoneBtn.addEventListener("click", () => {
+    if (currentPoints.length < 3) return;
+    if (activeTool === "lane") {
+      annotations.lane_zones.push([...currentPoints]);
+    } else if (activeTool === "intersection") {
+      annotations.intersection_zone = [...currentPoints];
+    } else if (activeTool === "crosswalk") {
+      annotations.crosswalk_zone = [...currentPoints];
+    }
+    currentPoints = [];
+    finishZoneBtn.disabled = true;
+    updateUI();
+    redrawCanvas();
+  });
+
+  clearMarksBtn.addEventListener("click", () => resetAnnotations());
+
+  function resetAnnotations() {
+    currentPoints = [];
+    annotations = { lane_zones: [], intersection_zone: null, crosswalk_zone: null, counting_lines: [] };
+    finishZoneBtn.disabled = true;
+    updateUI();
+    redrawCanvas();
+  }
+
+  function updateUI() {
+    shapeList.innerHTML = "";
+    let totalZones = 0;
+
+    annotations.lane_zones.forEach((zone, idx) => {
+      totalZones++;
+      addShapeBadge(`Lane ${idx + 1} (${zone.length} pts)`, "#F2B705");
+    });
+    if (annotations.intersection_zone) {
+      totalZones++;
+      addShapeBadge(`Intersection Box (${annotations.intersection_zone.length} pts)`, "#FF5C5C");
+    }
+    if (annotations.crosswalk_zone) {
+      totalZones++;
+      addShapeBadge(`Crosswalk Zone (${annotations.crosswalk_zone.length} pts)`, "#FF00FF");
+    }
+    annotations.counting_lines.forEach((line, idx) => {
+      totalZones++;
+      addShapeBadge(`Counting Line ${idx + 1}`, "#33D17A");
+    });
+
+    processVideoBtn.disabled = (totalZones === 0);
+  }
+
+  function addShapeBadge(text, color) {
+    const li = document.createElement("li");
+    li.className = "flex items-center gap-2 text-xs";
+    li.innerHTML = `<span class="w-2 h-2 rounded-full" style="background-color: ${color}"></span><span>${text}</span>`;
+    shapeList.appendChild(li);
+  }
+
+  function redrawCanvas() {
+    if (!bgImage) return;
+    ctx.drawImage(bgImage, 0, 0);
+
+    annotations.lane_zones.forEach((pts, i) => drawPolygon(pts, "#F2B705", `Lane ${i + 1}`));
+    if (annotations.intersection_zone) drawPolygon(annotations.intersection_zone, "#FF5C5C", "INTERSECTION");
+    if (annotations.crosswalk_zone) drawPolygon(annotations.crosswalk_zone, "#FF00FF", "CROSSWALK");
+
+    annotations.counting_lines.forEach((line, i) => {
+      ctx.beginPath();
+      ctx.moveTo(line[0][0], line[0][1]);
+      ctx.lineTo(line[1][0], line[1][1]);
+      ctx.strokeStyle = "#33D17A";
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.fillStyle = "#33D17A";
+      ctx.font = "bold 14px IBM Plex Mono";
+      ctx.fillText(`Line ${i + 1}`, line[0][0], line[0][1] - 5);
+    });
+
+    if (currentPoints.length > 0) {
+      ctx.fillStyle = "#F2B705";
+      ctx.strokeStyle = "#F2B705";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      currentPoints.forEach((pt, idx) => {
+        if (idx === 0) ctx.moveTo(pt[0], pt[1]);
+        else ctx.lineTo(pt[0], pt[1]);
+      });
+      ctx.stroke();
+      currentPoints.forEach(pt => {
+        ctx.beginPath();
+        ctx.arc(pt[0], pt[1], 4, 0, 2 * Math.PI);
+        ctx.fill();
+      });
+    }
+  }
+
+  function drawPolygon(pts, color, label) {
+    if (!pts || pts.length < 3) return;
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+    ctx.closePath();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = color + "22";
+    ctx.fill();
+
+    ctx.fillStyle = color;
+    ctx.font = "bold 14px IBM Plex Mono";
+    ctx.fillText(label, pts[0][0], pts[0][1] - 8);
+  }
+
+  processVideoBtn.addEventListener("click", async () => {
+    if (!currentVideoId) return;
+    processVideoBtn.disabled = true;
+    resultsWrap.classList.add("hidden");
+    progressWrap.classList.remove("hidden");
+    progressBar.style.width = "0%";
+    progressPct.textContent = "0%";
+    setVideoStatus("running", "Processing computer vision model...");
+
+    const payload = {
+      video_id: currentVideoId,
+      canvas_width: laneCanvas.width,
+      canvas_height: laneCanvas.height,
+      lane_annotations: JSON.stringify(annotations)
+    };
+
+    try {
+      const data = await api("/api/analyze-video", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      videoPollTimer = setInterval(() => pollVideoStatus(data.job_id), 1200);
+    } catch (e) {
+      alert("Analysis failed to start: " + e.message);
+      processVideoBtn.disabled = false;
+      progressWrap.classList.add("hidden");
+      setVideoStatus("error", e.message);
+    }
+  });
+
+  async function pollVideoStatus(jobId) {
+    try {
+      const data = await api("/api/analyze-video/" + jobId);
+      const pct = Math.round((data.progress || 0) * 100);
+      progressBar.style.width = pct + "%";
+      progressPct.textContent = pct + "%";
+
+      if (data.status === "finished") {
+        clearInterval(videoPollTimer);
+        progressWrap.classList.add("hidden");
+        resultsWrap.classList.remove("hidden");
+        setVideoStatus("finished", "Analysis complete");
+
+        outputVideo.src = data.output_video_url;
+
+        classTotalsGrid.innerHTML = "";
+        const totals = data.metrics.vehicle_class_totals || {};
+        Object.entries(totals).forEach(([cls, count]) => {
+          const card = document.createElement("div");
+          card.className = "bg-asphalt border border-asphalt-border rounded-lg p-3 text-center";
+          card.innerHTML = `<p class="text-xs text-muted">${cls}</p><p class="text-lg font-mono font-bold text-amber">${count}</p>`;
+          classTotalsGrid.appendChild(card);
+        });
+
+        anomaliesList.innerHTML = "";
+        const anomalies = data.metrics.detected_anomalies_summary || {};
+        if (Object.keys(anomalies).length === 0) {
+          anomaliesList.innerHTML = `<p class="text-xs text-muted col-span-2">No critical traffic anomalies detected.</p>`;
+        } else {
+          Object.entries(anomalies).forEach(([issue, count]) => {
+            const item = document.createElement("div");
+            item.className = "flex items-center justify-between bg-asphalt-panel p-2 rounded border border-asphalt-border";
+            item.innerHTML = `<span class="text-xs text-paint">${issue}</span><span class="text-xs font-mono font-bold text-signal-red">${count}</span>`;
+            anomaliesList.appendChild(item);
+          });
+        }
+
+        solutionsTbody.innerHTML = "";
+        (data.solutions || []).forEach(sol => {
+          const tr = document.createElement("tr");
+          tr.className = "hover:bg-asphalt-panel transition-colors";
+          tr.innerHTML = `
+            <td class="p-2 font-mono text-amber">${sol.Tier || ''}</td>
+            <td class="p-2 font-medium">${sol.Solution_Name || ''}</td>
+            <td class="p-2 text-muted">${sol.Target_Issues || ''}</td>
+            <td class="p-2 font-mono text-xs">${sol.Est_Cost || ''}</td>
+            <td class="p-2 font-mono text-xs text-signal-green">${sol.Traffic_Flow_Impact || ''}</td>
+          `;
+          solutionsTbody.appendChild(tr);
+        });
+
+        if (typeof marked !== "undefined" && data.ai_report) {
+          aiReportContent.innerHTML = marked.parse(data.ai_report);
+        } else {
+          aiReportContent.textContent = data.ai_report || "No AI report generated.";
+        }
+      } else if (data.status === "error") {
+        clearInterval(videoPollTimer);
+        progressWrap.classList.add("hidden");
+        processVideoBtn.disabled = false;
+        setVideoStatus("error", data.message);
+        alert("Video analysis error: " + data.message);
+      }
+    } catch (e) {
+      clearInterval(videoPollTimer);
+      progressWrap.classList.add("hidden");
+      processVideoBtn.disabled = false;
+      setVideoStatus("error", e.message);
+    }
+  }
 })();
 </script>
 </body>

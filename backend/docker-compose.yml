@@ -13,6 +13,7 @@ services:
     environment:
       - DISPLAY=:99
       - TRACI_PORT=8813
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
     volumes:
       - ./networks:/app/networks
       - ./uploads:/app/uploads
@@ -25,13 +26,3 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
-
-    # Uncomment to run YOLO inference on an NVIDIA GPU (requires the NVIDIA
-    # Container Toolkit on the host):
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
