@@ -19,7 +19,7 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Optional, Tuple
 
 import requests
 import sumolib
@@ -28,8 +28,6 @@ import traci
 logger = logging.getLogger("autotactix.sumo_utils")
 
 BASE_DIR = Path(__file__).resolve().parent
-NETWORKS_DIR = BASE_DIR / "networks"
-NETWORKS_DIR.mkdir(parents=True, exist_ok=True)
 
 SUMO_HOME = Path(os.environ.get("SUMO_HOME", "/usr/share/sumo"))
 
@@ -180,16 +178,6 @@ class SimulationRunner:
         with self._lock:
             return self.active_job_id is not None
 
-    def list_networks(self) -> List[str]:
-        """Lists user network files in the networks directory."""
-        if not NETWORKS_DIR.exists():
-            return []
-        return [
-            f.name
-            for f in NETWORKS_DIR.glob("*.net.xml")
-            if not f.name.startswith("repaired_") and not f.name.startswith("auto_")
-        ]
-
     def stop(self):
         """Stops active simulation and cleans up processes."""
         logger.info("Stopping simulation runner...")
@@ -209,7 +197,6 @@ class SimulationRunner:
         num_vehicles: int,
         injection_rate: float,
         step_delay: int,
-        custom_net_file: Optional[str] = None,
     ):
         """Cancels any prior running job and starts a new simulation thread isolated by job_id."""
         with self._lock:
@@ -229,7 +216,6 @@ class SimulationRunner:
                 num_vehicles,
                 injection_rate,
                 step_delay,
-                custom_net_file,
             ),
             daemon=True,
         )
@@ -248,7 +234,6 @@ class SimulationRunner:
         num_vehicles: int,
         injection_rate: float,
         step_delay: int,
-        custom_net_file: Optional[str] = None,
     ):
         job_id = job.job_id
         job.status = "preparing"
@@ -263,20 +248,16 @@ class SimulationRunner:
             if not self._is_job_active(job_id):
                 return
 
-            # 1. Download OSM or Use Custom Network File
-            if custom_net_file and (NETWORKS_DIR / custom_net_file).exists():
-                job.message = f"Loading network {custom_net_file}..."
-                active_net_file = NETWORKS_DIR / custom_net_file
-            else:
-                job.message = f"Downloading OpenStreetMap data for GPS ({center_lat:.4f}, {center_lon:.4f})..."
-                bbox = bbox_from_point(center_lat, center_lon, radius)
-                download_osm_data(bbox, osm_file)
+            # 1. Download OSM data for the selected GPS point and build the SUMO network
+            job.message = f"Downloading OpenStreetMap data for GPS ({center_lat:.4f}, {center_lon:.4f})..."
+            bbox = bbox_from_point(center_lat, center_lon, radius)
+            download_osm_data(bbox, osm_file)
 
-                if not self._is_job_active(job_id):
-                    return
+            if not self._is_job_active(job_id):
+                return
 
-                job.message = "Compiling geo-referenced SUMO network with netconvert..."
-                generate_sumo_net(osm_file, active_net_file)
+            job.message = "Compiling geo-referenced SUMO network with netconvert..."
+            generate_sumo_net(osm_file, active_net_file)
 
             if not self._is_job_active(job_id):
                 return
@@ -333,9 +314,10 @@ class SimulationRunner:
             view_id = "View #0"
             try:
                 traci.gui.setSchema(view_id, "real world")
-                half_r = max(150.0, radius)
+                # Expand boundary coverage and lower initial zoom value for a wider view
+                half_r = max(300.0, radius * 1.5)
                 traci.gui.setBoundary(view_id, cx - half_r, cy - half_r, cx + half_r, cy + half_r)
-                traci.gui.setZoom(view_id, 4500)
+                traci.gui.setZoom(view_id, 1000)
             except traci.TraCIException as gui_err:
                 logger.warning("TraCI GUI setup failed: %s", gui_err)
 

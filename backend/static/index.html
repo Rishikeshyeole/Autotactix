@@ -9,6 +9,11 @@
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+<!-- Leaflet OSM Map Library -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
 <script>
   tailwind.config = {
     theme: {
@@ -52,6 +57,10 @@
   .markdown-body table { width: 100%; border-collapse: collapse; margin-top: 0.75rem; font-size: 0.8rem; }
   .markdown-body th, .markdown-body td { border: 1px solid #2A2E38; padding: 6px 10px; text-align: left; }
   .markdown-body th { background: #1B1E24; color: #F2B705; }
+
+  /* Map Picker Styling */
+  .leaflet-container { background-color: #15171C !important; }
+  .leaflet-bar a { background-color: #1B1E24 !important; color: #ECEAE2 !important; border-color: #2A2E38 !important; }
 </style>
 </head>
 <body class="bg-asphalt text-paint font-body antialiased min-h-screen">
@@ -86,17 +95,28 @@
           <div class="space-y-2">
             <label class="block">
               <span class="text-xs text-muted">Latitude</span>
-              <input id="center-lat" type="number" step="0.000001" value="20.068466" class="field w-full mt-1 rounded-md px-2.5 py-1.5 text-sm font-mono" />
+              <input id="center-lat" type="number" step="0.000001" value="19.986961" class="field w-full mt-1 rounded-md px-2.5 py-1.5 text-sm font-mono" />
             </label>
             <label class="block">
               <span class="text-xs text-muted">Longitude</span>
-              <input id="center-lon" type="number" step="0.000001" value="73.790560" class="field w-full mt-1 rounded-md px-2.5 py-1.5 text-sm font-mono" />
+              <input id="center-lon" type="number" step="0.000001" value="73.784083" class="field w-full mt-1 rounded-md px-2.5 py-1.5 text-sm font-mono" />
             </label>
             <label class="block">
               <span class="text-xs text-muted">Radius (Meters)</span>
               <input id="radius" type="number" min="100" max="5000" step="50" value="300" class="field w-full mt-1 rounded-md px-2.5 py-1.5 text-sm font-mono" />
             </label>
           </div>
+        </div>
+
+        <div class="h-px bg-asphalt-border"></div>
+
+        <!-- Interactive Map Selector -->
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <p class="text-sm font-medium text-paint">Select Location on Map</p>
+            <span class="text-[10px] text-muted">Click or drag marker</span>
+          </div>
+          <div id="osm-map-picker" class="w-full h-44 rounded-md border border-asphalt-border overflow-hidden z-0"></div>
         </div>
 
         <div class="h-px bg-asphalt-border"></div>
@@ -113,15 +133,6 @@
               <input id="step-delay" type="number" min="0" max="1000" value="80" class="field w-28 rounded-md px-2.5 py-1.5 text-sm font-mono text-right" />
             </label>
           </div>
-        </div>
-
-        <div class="h-px bg-asphalt-border"></div>
-
-        <div>
-          <p class="text-sm font-medium text-paint mb-2">Network Selection</p>
-          <select id="network-select" class="field w-full rounded-md px-2.5 py-1.5 text-sm">
-            <option value="">⚡ Auto-Generate Live Map from GPS</option>
-          </select>
         </div>
 
         <button id="run-sim-btn" class="w-full bg-amber text-asphalt font-semibold text-sm rounded-md py-2.5 hover:brightness-110 transition disabled:opacity-50">
@@ -266,6 +277,7 @@
         panelVideo.classList.add("hidden");
         tabSim.className = "px-4 py-2 rounded-md text-sm font-medium transition-colors bg-amber text-asphalt";
         tabVideo.className = "px-4 py-2 rounded-md text-sm font-medium transition-colors text-muted hover:text-paint";
+        if (map) map.invalidateSize();
       });
     
       tabVideo.addEventListener("click", () => {
@@ -282,6 +294,51 @@
         if (!res.ok) throw new Error((body && body.detail) ? body.detail : res.statusText);
         return body;
       }
+
+      // --- Map Picker Logic ---
+      const latInput = document.getElementById("center-lat");
+      const lonInput = document.getElementById("center-lon");
+
+      let initialLat = parseFloat(latInput.value) || 20.068466;
+      let initialLon = parseFloat(lonInput.value) || 73.790560;
+
+      const map = L.map('osm-map-picker').setView([initialLat, initialLon], 14);
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(map);
+
+      let marker = L.marker([initialLat, initialLon], { draggable: true }).addTo(map);
+
+      function updateMarkerLocation(lat, lon) {
+        latInput.value = lat.toFixed(6);
+        lonInput.value = lon.toFixed(6);
+      }
+
+      marker.on('dragend', function (e) {
+        const pos = marker.getLatLng();
+        updateMarkerLocation(pos.lat, pos.lng);
+      });
+
+      map.on('click', function (e) {
+        const lat = e.latlng.lat;
+        const lon = e.latlng.lng;
+        marker.setLatLng([lat, lon]);
+        updateMarkerLocation(lat, lon);
+      });
+
+      function syncMapFromInputs() {
+        const lat = parseFloat(latInput.value);
+        const lon = parseFloat(lonInput.value);
+        if (!isNaN(lat) && !isNaN(lon)) {
+          marker.setLatLng([lat, lon]);
+          map.panTo([lat, lon]);
+        }
+      }
+
+      latInput.addEventListener("change", syncMapFromInputs);
+      lonInput.addEventListener("change", syncMapFromInputs);
     
       // --- Module 1 Logic ---
       const runSimBtn = document.getElementById("run-sim-btn");
@@ -293,7 +350,6 @@
       const simIframe = document.getElementById("sim-iframe");
       const simPlaceholder = document.getElementById("sim-placeholder");
       const simPlaceholderText = document.getElementById("sim-placeholder-text");
-      const networkSelect = document.getElementById("network-select");
     
       let simPollTimer = null;
       let simIframeLoaded = false;
@@ -303,20 +359,6 @@
           navigator.sendBeacon("/api/simulate/stop-active");
         }
       });
-    
-      async function loadNetworks() {
-        try {
-          const data = await api("/api/networks");
-          networkSelect.innerHTML = '<option value="">⚡ Auto-Generate Live Map from GPS</option>';
-          (data.networks || []).forEach((name) => {
-            const opt = document.createElement("option");
-            opt.value = name;
-            opt.textContent = name;
-            networkSelect.appendChild(opt);
-          });
-        } catch (e) {}
-      }
-      loadNetworks();
     
       function setSimStatus(status, message) {
         const isRunning = status === 'running';
@@ -330,7 +372,6 @@
       }
     
       async function pollSimStatus(jobId) {
-        // Prevent invalid GET /api/simulate requests if jobId is missing
         if (!jobId) return;
     
         try {
@@ -394,7 +435,6 @@
           radius: parseFloat(document.getElementById("radius").value),
           injection_rate: parseFloat(document.getElementById("injection-rate").value),
           step_delay: parseInt(document.getElementById("step-delay").value, 10),
-          network_file: networkSelect.value || null,
         };
     
         try {
@@ -411,7 +451,6 @@
           setSimStatus("starting", "Initializing pipeline...");
           stopSimBtn.dataset.jobId = data.job_id;
           
-          // Immediately poll once and start interval
           pollSimStatus(data.job_id);
           simPollTimer = setInterval(() => pollSimStatus(data.job_id), 1200);
         } catch (e) {

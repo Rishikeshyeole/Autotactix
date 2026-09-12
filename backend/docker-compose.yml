@@ -18,6 +18,7 @@ services:
       - ./networks:/app/networks
       - ./uploads:/app/uploads
       - ./outputs:/app/outputs
+      - ./static:/app/static
     shm_size: "1gb"
     restart: unless-stopped
     healthcheck:
